@@ -1,0 +1,16 @@
+{
+  "name": "Haikyuu!! Road to the Top",
+  "version": "0.2.0",
+  "manifest_version": 1,
+  "description": "Fichas, bola em Montarias, rolagens Dice+ e mira com sorteio de Saque por Baixo em quatro células.",
+  "author": "Haikyuu!! Road to the Top",
+  "icon": "./icon.svg",
+  "action": {
+    "title": "Haikyuu!! - Fichas",
+    "icon": "./icon.svg",
+    "popover": "./index.html",
+    "width": 400,
+    "height": 690
+  },
+  "background_url": "./background.html"
+}
