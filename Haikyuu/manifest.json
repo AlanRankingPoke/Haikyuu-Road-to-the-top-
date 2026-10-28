@@ -1,16 +1,16 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "manifest_version": 1,
   "description": "Fichas, bola em Montarias, rolagens Dice+ e mira com sorteio de Saque por Baixo em quatro células.",
   "author": "Haikyuu!! Road to the Top",
-  "icon": "./icon.svg",
+  "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.svg",
   "action": {
     "title": "Haikyuu!! - Fichas",
-    "icon": "./icon.svg",
-    "popover": "./index.html",
+    "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.svg",
+    "popover": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/index.html",
     "width": 400,
     "height": 690
   },
-  "background_url": "./background.html"
+  "background_url": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/background.html"
 }
