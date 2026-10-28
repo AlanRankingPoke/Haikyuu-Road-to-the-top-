@@ -1,3 +1,4 @@
+
 import { buildShape } from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 import { courtFromCorners, isCourtValid, calculateServe, pickCell } from "./serve-math.mjs";
 
@@ -7,7 +8,7 @@ export const MODE_SERVE = `${ID}/mode-saque`;
 export const MODE_COURT = `${ID}/mode-calibrar`;
 export const COURT = `${ID}/court`;
 const BALL = `${ID}/ball`;
-const ICON = new URL("./icon.svg", import.meta.url).href;
+const ICON = new URL("./icon.jpg", import.meta.url).href;
 let firstCorner = null;
 let dpi = 0;
 let previewIds = [];
@@ -101,8 +102,46 @@ async function previewMove(obr, point, meta) {
   });
 }
 
+// Animação sincronizada da bola.
+const ANIMATION_MS = 1100;
+let animatingBall = false;
+
+async function animateBall(obr, ball, target) {
+  if (animatingBall) throw new Error("A bola já está em movimento.");
+  animatingBall = true;
+  let stop = null;
+  try {
+    const bounds = await obr.scene.items.getItemBounds([ball.id]);
+    const center = bounds?.center || ball.position;
+    const from = {x:ball.position.x, y:ball.position.y};
+    const to = {
+      x:from.x + target.x - center.x,
+      y:from.y + target.y - center.y
+    };
+    const [update, finish] = await obr.interaction.startItemInteraction(ball);
+    stop = finish;
+    const started = performance.now();
+    while (true) {
+      const t = Math.min(1, (performance.now() - started) / ANIMATION_MS);
+      // Movimento progressivo com desaceleração suave.
+      const ease = t * t * (3 - 2 * t);
+      const x = from.x + (to.x - from.x) * ease;
+      const y = from.y + (to.y - from.y) * ease;
+      update(draft => { draft.position = {x, y}; });
+      if (t >= 1) break;
+      await new Promise(resolve => setTimeout(resolve, 32));
+    }
+    await obr.scene.items.updateItems([ball.id], draft => {
+      for (const item of draft) item.position = {...to};
+    });
+  } finally {
+    try { if (stop) await stop(); }
+    finally { animatingBall = false; }
+  }
+}
+
 async function executeServe(obr, point, metadata) {
-  if (committing) return;
+  if (committing || animatingBall) return;
   committing = true;
   try {
     if (!dpi) dpi = await obr.scene.grid.getDpi();
@@ -114,24 +153,16 @@ async function executeServe(obr, point, metadata) {
     if (balls.length !== 1) throw new Error("O mestre precisa definir uma única bola na camada Montarias.");
     const ball = balls[0];
     if (ball.locked) throw new Error("Desbloqueie o token da bola antes de sacar.");
-    // Sorteio uniforme entre 4 destinos. A fonte de aleatoriedade do navegador
-    // não interfere com a rolagem de atributos, que continua no Dice+.
+    // Sorteio uniforme entre 4 destinos.
     const byte = new Uint32Array(1);
     crypto.getRandomValues(byte);
     const target = pickCell(snapshot.result.cells, () => byte[0] / 4294967296);
-    // Ajusta pelo centro visual do item, e não pela âncora do arquivo/imagem.
-    const ballBounds = await obr.scene.items.getItemBounds([ball.id]);
-    const center = ballBounds?.center ?? ball.position;
-    await obr.scene.items.updateItems([ball.id], items => {
-      for (const item of items) {
-        item.position.x += target.x - center.x;
-        item.position.y += target.y - center.y;
-      }
-    });
-    // Um clique = um saque. Novo saque exige preparação na ficha.
+    await removePreview(obr);
+    await animateBall(obr, ball, target);
+    // Um clique = um saque.
     await obr.tool.setMetadata(TOOL, {serverId:""});
     await removePreview(obr);
-    await notify(obr,"🏐 Saque por Baixo! Bola sorteada em um dos 4 quadradinhos.");
+    await notify(obr,"🏐 Saque por Baixo! Bola animada até o quadradinho sorteado.");
   } catch (err) {
     console.error("Erro no saque", err);
     await notify(obr, `Saque: ${err?.message || "não foi possível mover a bola"}`, "ERROR");
