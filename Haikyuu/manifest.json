@@ -1,16 +1,16 @@
 
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "manifest_version": 1,
-  "description": "Sistema de RPG Haikyuu!! com fichas, atributos, bola, Dice+ e saques.",
+  "description": "Fichas à esquerda, rolagens Dice+, bola animada e saque com mira.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.jpg",
   "action": {
     "title": "Haikyuu!! - Fichas",
     "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.jpg",
     "popover": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/index.html",
-    "width": 400,
+    "width": 385,
     "height": 690
   },
   "background_url": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/background.html"
