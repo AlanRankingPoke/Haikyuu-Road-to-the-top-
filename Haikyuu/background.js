@@ -1,74 +1,63 @@
-import {initServeTool} from "./serve-tool.js";
-// SDK carrega via CDN: dispensa terminal/compilação para hospedagem no GitHub Pages.
+
 import OBR from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
+import { initServeTool } from "./serve-tool.js";
 
 const ID = "br.com.haikyuu.rtt";
 const BALL = `${ID}/ball`;
 const PANEL_ID = `${ID}/side-sheet`;
-const ICON = new URL("./icon.svg", import.meta.url).href;
+const ICON = new URL("./icon.jpg", import.meta.url).href;
 const PANEL_URL = new URL("./index.html", import.meta.url).href;
-let lastSelectedId = null;
-let selectionGeneration = 0;
-let panelOpening = false;
+let lastId = null;
+let generation = 0;
+let opening = false;
 
-async function openSidePanel() {
-  if (panelOpening) return;
-  panelOpening = true;
+async function openLeftPanel() {
+  if (opening) return;
+  opening = true;
   try {
-    const [width, height] = await Promise.all([
-      OBR.viewport.getWidth(), OBR.viewport.getHeight()
-    ]);
-    // Um popover na borda direita, semelhante a uma ficha lateral.
+    const [width, height] = await Promise.all([OBR.viewport.getWidth(), OBR.viewport.getHeight()]);
     await OBR.popover.open({
       id: PANEL_ID,
       url: PANEL_URL,
-      width: Math.min(400, Math.max(280, width - 24)),
-      height: Math.min(730, Math.max(340, height - 90)),
+      width: Math.min(385, Math.max(260, width - 24)),
+      height: Math.min(730, Math.max(300, height - 95)),
       anchorReference: "POSITION",
-      anchorPosition: { left: Math.max(300, width - 10), top: 72 },
-      anchorOrigin: { horizontal: "RIGHT", vertical: "TOP" },
-      transformOrigin: { horizontal: "RIGHT", vertical: "TOP" },
+      anchorPosition: { left: 12, top: 72 },
+      anchorOrigin: { horizontal: "LEFT", vertical: "TOP" },
+      transformOrigin: { horizontal: "LEFT", vertical: "TOP" },
       disableClickAway: true
     });
   } catch (error) {
-    console.error("Haikyuu: não foi possível abrir a ficha", error);
-  } finally {
-    panelOpening = false;
-  }
+    console.error("Haikyuu: falha ao abrir ficha lateral", error);
+  } finally { opening = false; }
 }
 
-async function handleSelection(selection) {
+async function checkSelection(selection) {
   const id = Array.isArray(selection) && selection.length === 1 ? selection[0] : null;
-  if (!id || id === lastSelectedId) {
-    if (!id) lastSelectedId = null;
-    return;
-  }
-  const generation = ++selectionGeneration;
-  lastSelectedId = id;
+  const sequence = ++generation;
+  if (!id) { lastId = null; return; }
+  if (id === lastId) return;
+  lastId = id;
   try {
     if (!(await OBR.scene.isReady())) return;
     const [item] = await OBR.scene.items.getItems([id]);
-    if (generation !== selectionGeneration) return;
-    if (item && (item.layer === "CHARACTER" || item.layer === "MOUNT")) {
-      await openSidePanel();
-    }
-  } catch (error) {
-    console.warn("Haikyuu: erro ao verificar seleção", error);
-  }
+    if (sequence !== generation) return;
+    if (item && (item.layer === "CHARACTER" || item.layer === "MOUNT")) await openLeftPanel();
+  } catch (error) { console.warn("Haikyuu: seleção", error); }
 }
 
-async function defineBall(items) {
-  // Somente um objeto marcado como bola por cena.
-  const chosen = new Set(items.map(item => item.id));
-  const previousBalls = await OBR.scene.items.getItems(item => item.metadata?.[BALL] === true);
-  const ids = [...new Set([...previousBalls.map(item => item.id), ...chosen])];
+async function defineBall(item) {
+  if ((await OBR.player.getRole()) !== "GM") return;
+  if (item.layer !== "MOUNT") throw new Error("A bola deve estar em Montarias.");
+  const balls = await OBR.scene.items.getItems(x => x.metadata?.[BALL] === true);
+  const ids = [...new Set([...balls.map(x => x.id), item.id])];
   await OBR.scene.items.updateItems(ids, draft => {
-    for (const item of draft) {
-      if (chosen.has(item.id)) item.metadata[BALL] = true;
-      else delete item.metadata[BALL];
+    for (const token of draft) {
+      if (token.id === item.id) token.metadata[BALL] = true;
+      else delete token.metadata[BALL];
     }
   });
-  await OBR.notification.show("🏐 Bola definida! Você pode movê-la como montaria.");
+  await OBR.notification.show("🏐 Bola oficial definida na camada Montarias!");
 }
 
 OBR.onReady(async () => {
@@ -76,52 +65,36 @@ OBR.onReady(async () => {
     await initServeTool(OBR);
     await OBR.contextMenu.create({
       id: `${ID}/abrir-ficha`,
-      icons: [{
-        icon: ICON,
-        label: "Abrir ficha Haikyuu!!",
-        filter: { min: 1, max: 1, every: [{ key: "layer", value: "CHARACTER" }] }
-      }],
+      icons: [{ icon: ICON, label: "Abrir ficha Haikyuu!!", filter: {
+        min: 1, max: 1, every: [{ key: "layer", value: "CHARACTER" }]
+      } }],
       async onClick(context) {
         await OBR.player.select([context.items[0].id], true);
-        await openSidePanel();
+        await openLeftPanel();
       }
     });
     await OBR.contextMenu.create({
       id: `${ID}/definir-bola`,
-      icons: [{
-        icon: ICON,
-        label: "Definir como bola de vôlei",
-        filter: {
-          min: 1, max: 1,
-          roles: ["GM"],
-          every: [{ key: "layer", value: "MOUNT" }]
-        }
-      }],
+      icons: [{ icon: ICON, label: "Definir como bola", filter: {
+        min: 1, max: 1, roles: ["GM"], every: [{ key: "layer", value: "MOUNT" }]
+      } }],
       async onClick(context) {
         try {
-          await defineBall(context.items);
+          await defineBall(context.items[0]);
           await OBR.player.select([context.items[0].id], true);
-          await openSidePanel();
+          await openLeftPanel();
         } catch (error) {
           console.error(error);
-          await OBR.notification.show("Não foi possível definir a bola.", "ERROR");
+          await OBR.notification.show(`Bola: ${error.message}`, "ERROR");
         }
       }
     });
-
-    // Selecionar um token também abre o painel. Ele acompanha a seleção atual.
-    OBR.player.onChange(player => {
-      void handleSelection(player.selection);
-    });
+    OBR.player.onChange(player => { void checkSelection(player.selection); });
     OBR.scene.onReadyChange(ready => {
-      lastSelectedId = null;
-      selectionGeneration++;
-      if (ready) void OBR.player.getSelection().then(handleSelection).catch(console.error);
+      lastId = null;
+      generation++;
+      if (ready) void OBR.player.getSelection().then(checkSelection).catch(console.warn);
     });
-    if (await OBR.scene.isReady()) {
-      await handleSelection(await OBR.player.getSelection());
-    }
-  } catch (error) {
-    console.error("Haikyuu: erro na inicialização de menus", error);
-  }
+    if (await OBR.scene.isReady()) await checkSelection(await OBR.player.getSelection());
+  } catch (error) { console.error("Haikyuu: inicialização", error); }
 });
