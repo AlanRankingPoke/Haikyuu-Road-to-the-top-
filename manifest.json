@@ -1,16 +1,17 @@
+
 {
   "name": "Haikyuu!! Road to the Top",
   "version": "0.8.0",
   "manifest_version": 1,
-  "description": "Quatro tipos de saque com D20 natural, recepção Dice+, placar, ficha e bola animada.",
+  "description": "Sistema Haikyuu!! com fichas, saques, Dice+, placar e bola animada.",
   "author": "Haikyuu!! Road to the Top",
-  "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.jpg",
+  "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
     "title": "Haikyuu!! - Fichas",
-    "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/icon.jpg",
-    "popover": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/index.html",
+    "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
+    "popover": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/index.html",
     "width": 385,
     "height": 720
   },
-  "background_url": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Haikyuu/index.html?background=1"
+  "background_url": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/index.html?background=1"
 }
