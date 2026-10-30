@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Haikyuu!! Road to the Top — 0.8</title>
-<link rel="icon" type="image/jpeg" href="./Icon.png">
+<link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}button:disabled,input:disabled,select:disabled{opacity:.52;cursor:not-allowed}
@@ -58,7 +58,7 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.8 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.9 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // A quadra interna é 12×6 células; externa é 16×10 células.
 // Cada célula representa 1,5 metro (configuração do nosso RPG).
@@ -260,6 +260,7 @@ async function startBackground(){
  }
  async function doServe(point,meta){
    if(executing)return;executing=true;
+   let completion={ok:false,error:"Saque interrompido."};
    try{
      if((await OBR.scene.grid.getType())!=="SQUARE")throw Error("A grade precisa ser quadrada.");
      if(!SERVE_TYPES[meta?.serveType]||!meta?.serverId)throw Error("Prepare um Saque na ficha antes de mirar.");
@@ -296,10 +297,21 @@ async function startBackground(){
        if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
        else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
        else await notify(`🏐 ${t.name}: DENTRO! Recepção: ${t.receive}.`);
+       // A bola já chegou: o modo fica livre para iniciar a próxima tentativa.
        await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""});
+       completion={ok:true,inside:landedInside,naturalFail};
      }finally{await OBR.scene.setMetadata({[LOCK]:null}).catch(console.warn);}
-   }catch(e){console.error("Haikyuu saque",e);await notify(`Saque: ${e.message}`,"ERROR");}
-   finally{executing=false;}
+   }catch(e){console.error("Haikyuu saque",e);completion={ok:false,error:e.message};await notify(`Saque: ${e.message}`,"ERROR");}
+   finally{
+     executing=false;
+     // A ficha recebe a confirmação tanto para saques manuais quanto automáticos.
+     if(meta?.rollId){
+       try{await OBR.broadcast.sendMessage(`${ID}/serve-finished`,{
+         rollId:meta.rollId,playerId:await OBR.player.getId(),
+         serverId:meta.serverId,...completion
+       },{destination:"ALL"});}catch(e){console.warn("Haikyuu: confirmação do saque",e);}
+     }
+   }
  }
  // Após um erro no D20 natural, a bola sai automaticamente sem exigir uma mira manual.
  OBR.broadcast.onMessage(`${ID}/auto-fault`,event=>{void(async()=>{
@@ -356,7 +368,8 @@ async function startBackground(){
 
 // ======================== INTERFACE DA FICHA =======================
 async function startPanel(){
- let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore();
+ let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore(),serveLock=null;
+ let latestPreparedRollId=null;
  let selectSerial=0,busy=false,editingProfile=false;const rolls=new Map();
  // Autosave por token: edição otimista + 500ms de debounce, gravações em fila.
  const pending=new Map(),timers=new Map(),chains=new Map(),localSheets=new Map();
@@ -410,7 +423,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.8</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.9</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div>
  ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
  function choose(){return `<section class="card"><p class="kicker">Token selecionado</p><h2>${escapeHTML(sheetOf(selected).name)}</h2>
@@ -457,9 +470,10 @@ async function startPanel(){
    </div>`;}
  function serveCard(){return `<section class="card serve"><p class="kicker">Gameplay • Rally</p><h2>🏐 Tipos de Saque</h2>
    <p class="small">Escolha o saque: a rolagem do Dice+ será iniciada automaticamente. O erro depende apenas do D20 natural.</p>
-   <div class="serve-list">${Object.entries(SERVE_TYPES).map(([key,t])=>`<button class="serve-option" data-serve="${key}" ${busy?"disabled":""}>
+   <div class="serve-list">${Object.entries(SERVE_TYPES).map(([key,t])=>`<button class="serve-option" data-serve="${key}" ${busy||(serveLock?.until>Date.now())?"disabled":""}>
      <span>🏐 ${t.name}<small>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
    <p class="small">Mira temporária: 1,5 × 1,5 m para todos. As áreas definitivas dos outros três tipos ainda serão configuradas.</p>
+   <p class="small">${serveLock?.until>Date.now()?"⏳ Bola em movimento: o próximo saque será liberado ao terminar.":"✅ Pode fazer outro saque após a bola parar. Se pular a recepção, o rally anterior será encerrado sem ponto extra."}</p>
    <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre deve calibrar a quadra"}. Para mirar, use a ferramenta 🏐 se ela ainda não estiver selecionada.</p></section>`;}
  function receiveCard(){
    if(!isCharacter(selected)||!rally?.awaitingReception||!SERVE_TYPES[rally.type]||!isCourt(court))return "";
@@ -577,11 +591,23 @@ async function startPanel(){
    if(!isCourt(court))throw Error("O mestre precisa calibrar a quadra.");
    if(items.filter(isBall).length!==1)throw Error("O mestre deve definir uma bola em Montarias.");
    if(!isCharacter(selected))throw Error("Selecione o sacador.");
-   if(rally?.awaitingReception)throw Error("O Rally anterior ainda aguarda a recepção.");
+   // O novo saque inicia um novo rally. Uma recepção pendente do saque anterior
+   // não pode bloquear o próximo saque (especialmente durante testes repetidos).
    if((await OBR.scene.getMetadata())[LOCK]?.until>Date.now())throw Error("Aguarde o saque atual terminar.");
    const serverId=selectedId;
+   latestPreparedRollId=null;
    const s=currentSheet();
    const modifier=s.attributes.Saque+t.mod;
+   // Encerra apenas a recepção pendente ANTERIOR, sem atribuir ponto extra.
+   // O recebedor ainda pode receber normalmente se nenhum novo saque for escolhido.
+   const nowMeta=await OBR.scene.getMetadata();
+   const oldRally=nowMeta[RALLY];
+   if(oldRally?.awaitingReception){
+     const ended={...oldRally,awaitingReception:false,receptionPending:false,ended:true,
+       replacedByNewServe:true};
+     await OBR.scene.setMetadata({[RALLY]:ended});
+     rally=ended;
+   }
    // A mira fica preparada enquanto os dados rolam; um clique antes do resultado não lança a bola.
    await prepare(SERVE,{serverId,serveType:type,rollConfirmed:false,natural:0,total:0,rollId:""});
    status(`🎲 ${t.name}: rolando ${makeNotation(modifier)} no Dice+…`);
@@ -589,13 +615,15 @@ async function startPanel(){
      const r=await requestDice(makeNotation(modifier),`${s.name} • ${t.name}`,true);
      if(selectedId!==serverId)throw Error("O token selecionado mudou durante o saque. Prepare novamente.");
      await prepare(SERVE,{serverId,serveType:type,rollConfirmed:true,natural:r.natural,total:r.total,rollId:r.rollId});
+     latestPreparedRollId=r.rollId;
      const activeTool=await OBR.tool.getActiveTool();
      const fail=r.natural<=t.fail;
      if(fail){
-       status(`🚫 ${t.name}: D20 natural ${r.natural}. Erro automático! A bola será animada para fora e o adversário ganha 1 ponto.`,"warn");
-       await OBR.broadcast.sendMessage(`${ID}/auto-fault`,{
+       status(`🚫 ${t.name}: D20 natural ${r.natural}. Bola saindo da quadra...`,"warn");
+       await finishAutomaticFault({
          playerId:await OBR.player.getId(),serverId,type,rollId:r.rollId
-       },{destination:"ALL"});
+       });
+       status(`🚫 ${t.name}: D20 ${r.natural}. Erro automático e ponto adversário. ✅ Já pode sacar novamente.`,"warn");
      }else{
        status(`🎲 ${t.name}: D20 natural ${r.natural}; total ${r.total}. Mire no lado adversário. ${activeTool!==TOOL?"Selecione a ferramenta 🏐 uma vez na barra do Owlbear.":"Mira pronta."}`,
          activeTool!==TOOL?"warn":"ok");
@@ -604,6 +632,23 @@ async function startPanel(){
      await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""}).catch(console.warn);
      throw err;
    }
+ }
+ // O erro automático é executado pelo processo de fundo; aguardar o aviso
+ // impede disparar outro saque enquanto a bola anterior ainda está voando.
+ async function finishAutomaticFault(payload){
+   return new Promise((resolve,reject)=>{
+     let settled=false;
+     const clean=()=>{clearTimeout(timeout);unsubscribe();};
+     const done=(error,data)=>{if(settled)return;settled=true;clean();error?reject(error):resolve(data);};
+     const unsubscribe=OBR.broadcast.onMessage(`${ID}/serve-finished`,event=>{
+       const data=event.data;
+       if(data?.rollId!==payload.rollId||data?.playerId!==payload.playerId)return;
+       if(!data.ok)done(Error(data.error||"Não foi possível concluir o saque automático."));
+       else done(null,data);
+     });
+     const timeout=setTimeout(()=>done(Error("A animação do saque não confirmou o término. Confira a bola no mapa.")),15000);
+     OBR.broadcast.sendMessage(`${ID}/auto-fault`,payload,{destination:"ALL"}).catch(done);
+   });
  }
  async function receiveServe(){
    const meta=await OBR.scene.getMetadata();const current=meta[RALLY];
@@ -749,13 +794,22 @@ async function startPanel(){
  OBR.scene.items.onChange(all=>{items=all;selected=selectedId?all.find(i=>i.id===selectedId)||null:null;
    if(Date.now()>suppressEchoUntil && !(document.activeElement instanceof HTMLInputElement) && !(document.activeElement instanceof HTMLSelectElement))render();
  });
- OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);render();});
+ OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);serveLock=meta[LOCK]||null;render();});
  OBR.scene.grid.onChange(g=>{grid=g.scale;render();});
  OBR.player.onChange(p=>{role=p.role;const id=p.selection?.length===1?p.selection[0]:null;
    if(id!==selectedId)void selectedChanged(p.selection).catch(console.error);
  });
  OBR.scene.onReadyChange(ready=>{if(ready)void boot().catch(console.error);
-   else{items=[];selected=null;selectedId=null;court=null;rally=null;score=cleanScore();view="choose";editingProfile=false;render();}
+   else{items=[];selected=null;selectedId=null;court=null;rally=null;score=cleanScore();serveLock=null;view="choose";editingProfile=false;render();}
+ });
+ OBR.broadcast.onMessage(`${ID}/serve-finished`,e=>{
+   const data=e.data;
+   if(data?.rollId!==latestPreparedRollId)return;
+   latestPreparedRollId=null;
+   if(!busy){
+     if(data.ok)status(`✅ ${data.inside?"Saque dentro da quadra":"Saque fora da quadra"}. Bola parada! Você pode sacar novamente.`);
+     else status(`Falha ao concluir saque: ${data.error||"tente novamente"}`,"error");
+   }
  });
  OBR.broadcast.onMessage(`${ID}/roll-result`,e=>{
    const data=e.data,req=rolls.get(data?.rollId);
@@ -774,12 +828,12 @@ async function startPanel(){
  });
  async function boot(){if(!(await OBR.scene.isReady())){render();return;}
    const [all,meta,scale,sel]=await Promise.all([OBR.scene.items.getItems(),OBR.scene.getMetadata(),OBR.scene.grid.getScale(),OBR.player.getSelection()]);
-   items=all;court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);grid=scale.raw||"1,5m";
+   items=all;court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);serveLock=meta[LOCK]||null;grid=scale.raw||"1,5m";
    await selectedChanged(sel);
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.8</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.9</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
