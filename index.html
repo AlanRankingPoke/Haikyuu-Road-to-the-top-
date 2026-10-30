@@ -1,15 +1,787 @@
-
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Haikyuu!! Road to the Top</title>
-  <link rel="icon" href="./icon.jpg" type="image/jpeg">
-  <link rel="stylesheet" href="./style.css">
-</head>
-<body>
-  <div id="app"><div class="loading">🏐 Conectando ao Owlbear Rodeo...</div></div>
-  <script type="module" src="./panel.js"></script>
-</body>
-</html>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haikyuu!! Road to the Top — 0.8</title>
+<link rel="icon" type="image/jpeg" href="./icon.jpg">
+<style>
+:root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}button:disabled,input:disabled,select:disabled{opacity:.52;cursor:not-allowed}
+header{background:linear-gradient(120deg,#354055,#171e2b);border-bottom:2px solid #ffac42;padding:14px 15px;position:sticky;top:0;z-index:5}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}.top strong{font-size:17px}.top small{display:block;font-size:10px;letter-spacing:.12em;color:#ffcb8f;font-weight:800}
+main{padding:13px}.card{padding:14px;margin-bottom:12px;border:1px solid #42516a;border-radius:13px;background:#202c3c}h2{margin:0 0 10px;font-size:17px}p{line-height:1.5}.small{font-size:12px;color:#beccda}.kicker{font-size:10px;color:#ffba70;font-weight:900;letter-spacing:.11em;margin:0 0 8px;text-transform:uppercase}
+button{border:1px solid #5c7087;background:#354358;color:white;border-radius:8px;padding:10px;font-weight:750}button:hover:not(:disabled){border-color:#ffbd6b}
+.primary{background:#fcb04b;border-color:#ffcb84;color:#212738}.blue{background:#35c8e7;border-color:#7fe7fa;color:#0e2937}.wide{width:100%}
+.controls{display:grid;gap:9px}.controls button{text-align:left;padding:13px}.switch{margin-top:11px;width:100%;background:#e5a64b;color:#202a38}
+.field{display:block;font-size:12px;font-weight:800;margin:10px 0}.field input,.field select{display:block;width:100%;margin-top:7px}
+input,select{border:1px solid #566982;background:#111c2b;color:white;border-radius:8px;padding:9px;outline:none}input:focus,select:focus{border-color:#ffbe72}
+.attr{display:grid;grid-template-columns:minmax(0,1fr) 67px 76px;align-items:center;gap:7px;border-bottom:1px solid #34465a;padding:7px 0}.attr:last-child{border:0}.attr label{font-size:12px;font-weight:800}.attr input{width:100%;text-align:center}.attr button{background:#fcb04b;color:#20283b;border:0;font-size:12px;padding:10px 2px}
+.notice{padding:10px;border-radius:9px;background:#215044;color:#e2f7ed;font-size:12px;line-height:1.45;margin-bottom:12px}.notice.error{background:#65343b;color:#ffe1e1}.notice.warn{background:#614927;color:#ffefc5}
+.serve{background:#213c4b;border-color:#3a99ba}.stat{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #354356;padding:8px 0}.radio{display:block;background:#152337;border:1px solid #465b75;border-radius:9px;padding:11px;margin:8px 0;font-size:12px;cursor:pointer}.radio input{width:auto;margin-right:7px}
+footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
+.setup{border-color:#b17a35;background:#302b2b}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.profile-grid .field{min-width:0}
+.field-hint{display:block;font-weight:400;font-size:11px;color:#9eb2c6;margin:5px 0}.preset{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:10px 0}.preset span{border:1px solid #4e6074;border-radius:8px;padding:9px 3px;text-align:center;font-size:11px}.preset b{display:block;font-size:16px;color:#ffca84;margin-top:4px}
+.save-indicator{font-size:11px;min-height:16px;text-align:right;color:#95d9bd;margin:8px 0}.save-indicator.error{color:#ffc1c1}.tip{font-size:11px;color:#c4b9a7}
+.section-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}.section-heading .pill{font-size:10px;color:#ffc37f}
+
+
+/* Montando seu Jogador: distribuição com limite e resumo claro */
+.creation-steps{display:flex;gap:6px;margin:10px 0 15px}
+.creation-steps span{flex:1;text-align:center;border:1px solid #6c583c;border-radius:8px;padding:7px 3px;font-size:10px;color:#ffe0ad;background:#413427}
+.points-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#142a36;border:1px solid #447b8c;border-radius:10px;padding:12px;margin:10px 0}
+.points-summary strong{font-size:25px;color:#7ce7f6}.points-summary small{font-size:11px;color:#bdcedd;display:block}
+.bonus-head,.bonus-line{display:grid;grid-template-columns:minmax(0,1fr) 34px 36px 36px 34px;gap:5px;align-items:center}
+.bonus-head{font-size:10px;text-transform:uppercase;letter-spacing:.025em;color:#a5c0d3;padding:7px 0;border-bottom:1px solid #475469}
+.bonus-line{padding:9px 0;border-bottom:1px solid #3e4b5f}
+.bonus-line .attr-name{font-size:12px;font-weight:750;overflow-wrap:anywhere}
+.bonus-line .value{text-align:center;font-size:12px;color:#c7d9e7}
+.bonus-line .sum{font-size:15px;color:#ffe1a7;font-weight:850;text-align:center}
+.bonus-line button{font-size:18px;padding:5px 0;border-radius:7px;background:#34445a;border-color:#69839b}
+.bonus-line button.plus{background:#2c6776;border-color:#67d9e7}
+.bonus-line button:disabled{opacity:.28}
+.bonus-guide{font-size:11px;color:#ccd2dc;margin:10px 0}
+.profile-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.profile-summary .item{padding:10px;background:#172336;border:1px solid #3d536a;border-radius:9px}
+.profile-summary .item small{display:block;font-size:10px;color:#a7bcd1}
+.profile-summary .item b{display:block;font-size:13px;margin-top:4px}
+ .pill-ok{font-size:11px;color:#7ce7b6;font-weight:850}
+.serve-list{display:grid;gap:9px;margin:10px 0}
+.serve-option{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;border:1px solid #4e90a5;background:#1c4050;padding:12px}
+.serve-option span{display:block;font-size:13px}.serve-option small{display:block;font-weight:500;font-size:11px;color:#c5dbe4;margin-top:5px;line-height:1.35}
+.serve-option b{white-space:nowrap;color:#9ef0ff}.warn-text{color:#ffe5ac}.scoreboard{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0}
+.scoreboard div{border:1px solid #516178;background:#172737;padding:12px;border-radius:10px;text-align:center}
+.scoreboard strong{display:block;font-size:26px;color:#f8d699}.reception-card{border-color:#71c5a5;background:#183d39}
+
+</style></head>
+<body><div id="app"><main><div class="card">🏐 Conectando ao Owlbear Rodeo...</div></main></div>
+<script type="module">
+import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
+
+// ================================================================
+// HAIKYUU!! ROAD TO THE TOP v0.8 — ARQUIVO PRINCIPAL ÚNICO
+// ?background=1 registra ferramentas / janela normal mostra fichas.
+// A quadra interna é 12×6 células; externa é 16×10 células.
+// Cada célula representa 1,5 metro (configuração do nosso RPG).
+// ================================================================
+const ID="br.com.haikyuu.rtt"; // Mantém compatibilidade com fichas anteriores
+const SHEET=ID+"/sheet", BALL=ID+"/ball", COURT=ID+"/court", LOCK=ID+"/serve-lock";
+const RALLY=ID+"/rally", SCORE=ID+"/score";
+// Os tamanhos de mira dos outros três saques ainda serão definidos.
+// Até lá, todos usam a mira existente de 1,5m sem inventar medidas oficiais.
+const SERVE_TYPES={
+ underhand:{name:"Saque por Baixo",mod:0,fail:1,receive:"Passe com Vantagem",receptionAttr:"Passe",advantage:"adv"},
+ overhand:{name:"Saque por Cima",mod:0,fail:2,receive:"Passe normal",receptionAttr:"Passe",advantage:"normal"},
+ float:{name:"Saque Flutuante",mod:-2,fail:3,receive:"Passe com Desvantagem",receptionAttr:"Passe",advantage:"dis"},
+ jump:{name:"Saque Viagem",mod:-2,fail:3,receive:"Teste de Defesa",receptionAttr:"Defesa",advantage:"normal"}
+};
+const TOOL=ID+"/tool-saque", SERVE=ID+"/mode-saque", CALIBRATE=ID+"/mode-calibrar";
+const ICON=new URL("./icon.jpg",import.meta.url).href;
+const ATTRS=["Ataque","Defesa","Passe","Salto","Saque","Levantamento","Bloqueio"];
+// Distribuição oficial da tabela do livro: 7 pontos iniciais em cada posição.
+const PRESETS={
+ "Levantador":{Ataque:0,Defesa:1,Passe:0,Salto:1,Saque:1,Levantamento:3,Bloqueio:1},
+ "Líbero":{Ataque:0,Defesa:3,Passe:3,Salto:0,Saque:0,Levantamento:1,Bloqueio:0},
+ "Central":{Ataque:2,Defesa:0,Passe:0,Salto:1,Saque:0,Levantamento:1,Bloqueio:3},
+ "Ponteiro":{Ataque:2,Defesa:1,Passe:2,Salto:1,Saque:1,Levantamento:0,Bloqueio:0},
+ "Oposto":{Ataque:3,Defesa:0,Passe:0,Salto:2,Saque:2,Levantamento:0,Bloqueio:0}
+};
+const POSITIONS=Object.keys(PRESETS);
+const INITIAL_BONUS_POINTS=3, INITIAL_ATTRIBUTE_CAP=5;
+const emptyBonuses=()=>Object.fromEntries(ATTRS.map(a=>[a,0]));
+const pointsSpent=s=>ATTRS.reduce((total,a)=>total+(s.creationBonus?.[a]||0),0);
+const PANEL_ID=ID+"/left-sheet";
+const background=new URLSearchParams(location.search).has("background");
+const app=document.querySelector("#app");
+const escapeHTML=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const notify=(s,type)=>OBR.notification.show(s,type).catch(console.warn);
+const sleep=t=>new Promise(resolve=>setTimeout(resolve,t));
+const newId=()=>crypto.randomUUID();
+const finite=(v,fallback=0)=>Number.isFinite(Number(v))?Number(v):fallback;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const isBall=i=>i?.layer==="MOUNT" && i?.metadata?.[BALL]===true;
+const isCharacter=i=>i?.layer==="CHARACTER";
+const cleanScore=s=>({allies:Math.max(0,Math.trunc(finite(s?.allies))),enemies:Math.max(0,Math.trunc(finite(s?.enemies)))});
+const opposite=t=>t==="allies"?"enemies":"allies";
+const teamOfX=(x,c)=> (x<c.midX)===(allySide(c)==="LEFT")?"allies":"enemies";
+const dieFromResult=data=>{
+ const dice=data?.result?.groups?.filter(g=>g.diceType==="d20").flatMap(g=>g.dice||[])||[];
+ const used=dice.filter(d=>d.kept!==false);
+ const d=used.length===1&&dice.length===1?used[0]:null;
+ return Number.isInteger(d?.value)&&d.value>=1&&d.value<=20?d.value:null;
+};
+function receptionNotation(type,value){
+ const t=SERVE_TYPES[type],base=t.advantage==="adv"?"2d20kh1":t.advantage==="dis"?"2d20kl1":"1d20";
+ return `${base}${value<0?"-":"+"}${Math.abs(value)}`;
+}
+function forcedOutside(c,dpi,sourceLeft,aimPoint){
+ // Erro automático: sempre depois da linha de fundo adversária, dentro da faixa externa de 3 m.
+ return {x:sourceLeft?c.max.x+dpi:c.min.x-dpi,
+         y:clamp(aimPoint.y,c.min.y+dpi/2,c.max.y-dpi/2)};
+}
+const isCourt=c=>c && [c.min?.x,c.min?.y,c.max?.x,c.max?.y,c.midX].every(Number.isFinite) && c.min.x<c.midX && c.midX<c.max.x && c.min.y<c.max.y;
+const allySide=c=>c?.allySide==="RIGHT"?"RIGHT":"LEFT";
+function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
+ // Fichas concluídas na v0.6 com os 7 pontos-base e nível 1 ganham a nova etapa,
+ // sem alterar fichas já evoluídas ou fichas NPC.
+ const legacyNeedsBonus=s.created===true && s.kind!=="npc" && s.level===1 &&
+   !s.creationBonus && POSITIONS.includes(s.position) &&
+   ATTRS.every(a=>finite(s.attributes?.[a])===PRESETS[s.position][a]);
+ return{
+ name:typeof s.name==="string"?s.name:item?.name||"Personagem",
+ kind:s.kind==="npc"?"npc":"jogador",
+ position:POSITIONS.includes(s.position)?s.position:"",
+ heightCm:Number.isFinite(s.heightCm)&&s.heightCm>0?s.heightCm:null,
+ jumpCm:Number.isFinite(s.jumpCm)&&s.jumpCm>=0?s.jumpCm:null,
+ level:Number.isInteger(s.level)&&s.level>=1?s.level:1,
+ created:s.created===true&&!legacyNeedsBonus,
+ creationBonus:Object.fromEntries(ATTRS.map(a=>[a,clamp(Math.trunc(finite(s.creationBonus?.[a])),0,INITIAL_ATTRIBUTE_CAP)])),
+ attributes:Object.fromEntries(ATTRS.map(a=>[a,clamp(Math.trunc(finite(s.attributes?.[a])),-9999,9999)]))
+};}
+function mergePatch(a,b){return {...a,...b,
+ attributes:{...(a.attributes||{}),...(b.attributes||{})},
+ creationBonus:{...(a.creationBonus||{}),...(b.creationBonus||{})}};}
+// A calibração guarda as linhas internas; limites externos são calculados automaticamente.
+function exterior(c,dpi){return{min:{x:c.min.x-2*dpi,y:c.min.y-2*dpi},max:{x:c.max.x+2*dpi,y:c.max.y+2*dpi}};}
+function inside(p,rect,eps=0){return p.x>=rect.min.x-eps && p.x<=rect.max.x+eps && p.y>=rect.min.y-eps && p.y<=rect.max.y+eps;}
+function fourCells(cross,dpi){return[
+ {x:cross.x-dpi/2,y:cross.y-dpi/2}, {x:cross.x+dpi/2,y:cross.y-dpi/2},
+ {x:cross.x-dpi/2,y:cross.y+dpi/2}, {x:cross.x+dpi/2,y:cross.y+dpi/2}
+];}
+function aimAt(cross,dpi,c,sourceX){
+ const cells=fourCells(cross,dpi);
+ if(!isCourt(c)||!Number.isFinite(sourceX))return{valid:false,reason:"Calibre a quadra e selecione o sacador.",cells};
+ const ext=exterior(c,dpi),epsilon=dpi*.001,sourceLeft=sourceX<c.midX;
+ if(Math.abs(sourceX-c.midX)<epsilon)return{valid:false,reason:"Sacador na rede.",cells};
+ if(!cells.every(p=>inside(p,ext,epsilon)))return{valid:false,reason:"A mira ultrapassa o limite externo de 3 metros.",cells};
+ if(!cells.every(p=>sourceLeft?p.x>c.midX+epsilon:p.x<c.midX-epsilon))return{valid:false,reason:"Mire somente no lado adversário (ou fora dele).",cells};
+ return{valid:true,cells,inside:cells.map(p=>inside(p,c,epsilon))};
+}
+function pickCell(cells){const a=new Uint32Array(1);crypto.getRandomValues(a);return cells[Math.floor(a[0]/4294967296*cells.length)];}
+async function setBall(itemId,enabled){
+ const all=await OBR.scene.items.getItems(i=>isBall(i)||i.id===itemId);
+ if(!all.some(i=>i.id===itemId&&i.layer==="MOUNT"))throw Error("Selecione um objeto em Montarias.");
+ await OBR.scene.items.updateItems(all.map(i=>i.id),draft=>{
+   for(const i of draft){if(i.id===itemId&&enabled)i.metadata[BALL]=true;else delete i.metadata[BALL];}
+ });
+}
+
+// ==================== PROCESSO DE FUNDO ==========================
+async function startBackground(){
+ app.innerHTML="";document.body.style.display="none";
+ let firstCorner=null,previewIds=[],previewJob=null,previewKey="",active=false,executing=false,dpi=0,court=null;
+ let lastSelection=null,opening=false,selectionSerial=0,pendingPoint=null,pendingMeta=null,painting=false;
+ async function openLeftSheet(){
+   if(opening)return;
+   opening=true;
+   try{
+     const [w,h]=await Promise.all([OBR.viewport.getWidth(),OBR.viewport.getHeight()]);
+     await OBR.popover.open({id:PANEL_ID,url:new URL("./index.html",import.meta.url).href,
+       width:Math.min(390,Math.max(260,w-25)),height:Math.min(740,Math.max(350,h-88)),
+       anchorReference:"POSITION",anchorPosition:{left:12,top:70},
+       anchorOrigin:{horizontal:"LEFT",vertical:"TOP"},transformOrigin:{horizontal:"LEFT",vertical:"TOP"},disableClickAway:true});
+   }finally{opening=false;}
+ }
+ async function openSelection(ids){
+   const id=ids?.length===1?ids[0]:null,serial=++selectionSerial;
+   if(!id){lastSelection=null;return;}
+   if(id===lastSelection)return;
+   const [item]=await OBR.scene.items.getItems([id]);
+   if(serial!==selectionSerial||!item||(!isCharacter(item)&&item.layer!=="MOUNT"))return;
+   lastSelection=id;await openLeftSheet();
+ }
+ OBR.player.onChange(p=>{void openSelection(p.selection).catch(console.warn);});
+ OBR.scene.onReadyChange(ready=>{
+   if(ready){lastSelection=null;void OBR.player.getSelection().then(openSelection).catch(console.warn);}
+   else{court=null;firstCorner=null;dpi=0;void removePreview();}
+ });
+ await OBR.contextMenu.create({id:ID+"/abrir-ficha",icons:[{icon:ICON,label:"Abrir ficha Haikyuu!!",filter:{min:1,max:1,every:[{key:"layer",value:"CHARACTER"}]}}],
+   async onClick(ctx){await OBR.player.select([ctx.items[0].id],true);await openLeftSheet();}});
+ await OBR.contextMenu.create({id:ID+"/definir-bola",icons:[{icon:ICON,label:"Definir como bola",filter:{min:1,max:1,roles:["GM"],every:[{key:"layer",value:"MOUNT"}]}}],
+   async onClick(ctx){try{await setBall(ctx.items[0].id,true);await OBR.player.select([ctx.items[0].id],true);await openLeftSheet();await notify("🏐 Bola oficial definida.");}catch(e){await notify(e.message,"ERROR");}}});
+ await OBR.tool.create({id:TOOL,icons:[{icon:ICON,label:"Haikyuu!!: mira / calibrar"}],defaultMode:SERVE,defaultMetadata:{serverId:"",serveType:"underhand"}});
+ function shape(label,d,color,opacity){return buildShape().shapeType("RECTANGLE").name(label).width(d).height(d).position({x:0,y:0}).layer("DRAWING")
+   .disableHit(true).fillColor(color).fillOpacity(opacity).strokeColor(color).strokeWidth(2).strokeOpacity(.9).build();}
+ async function removePreview(){previewKey="";pendingPoint=null;
+   if(previewJob)try{await previewJob;}catch(e){console.warn(e);}
+   const ids=previewIds;previewIds=[];
+   if(ids.length)try{await OBR.scene.local.deleteItems(ids);}catch(e){console.warn(e);}
+ }
+ async function ensurePreview(){if(previewIds.length)return;if(previewJob)return previewJob;
+   previewJob=(async()=>{const a=[...Array.from({length:4},(_,i)=>shape(`Destino ${i+1}`,dpi,"#38bdf8",.18)),shape("Mira de saque",dpi,"#22d3ee",.23)];
+   await OBR.scene.local.addItems(a);previewIds=a.map(i=>i.id);})();
+   try{await previewJob;}finally{previewJob=null;}
+ }
+ async function getAim(point,metadata){
+   if(!dpi)dpi=await OBR.scene.grid.getDpi();
+   const cross=await OBR.scene.grid.snapPosition(point,1,true,false);
+   const sid=metadata?.serverId;
+   if(!sid)return{cross,aim:{valid:false,reason:"Escolha um tipo de Saque na ficha."}};
+   if(!court)court=(await OBR.scene.getMetadata())[COURT];
+   const [token]=await OBR.scene.items.getItems([sid]);
+   if(!isCharacter(token))return{cross,aim:{valid:false,reason:"Sacador não encontrado."}};
+   const bounds=await OBR.scene.items.getItemBounds([sid]);
+   const sourceX=bounds?.center?.x??token.position.x;
+   return{cross,aim:aimAt(cross,dpi,court,sourceX)};
+ }
+ async function paint(point,metadata){
+   if(!active||executing||!point)return;
+   const {cross,aim}=await getAim(point,metadata);
+   const key=`${cross.x}/${cross.y}/${metadata?.serverId}/${aim.valid}/${aim.inside?.join("-")}`;
+   if(key===previewKey&&previewIds.length)return;
+   previewKey=key;
+   if(!aim.cells){await removePreview();return;}
+   await ensurePreview();if(!active||!previewIds.length)return;
+   const places=[...aim.cells.map(p=>({x:p.x-dpi/2,y:p.y-dpi/2})),{x:cross.x-dpi/2,y:cross.y-dpi/2}];
+   const lookup=new Map(previewIds.map((id,i)=>[id,i]));
+   await OBR.scene.local.updateItems(previewIds,draft=>{
+     for(const item of draft){const k=lookup.get(item.id);item.position=places[k];
+       const color=!aim.valid?"#fb7185":k===4?"#22d3ee":aim.inside[k]?"#38bdf8":"#f59e0b";
+       item.style.fillColor=color;item.style.strokeColor=color;
+     }
+   });
+ }
+ function onMouse(point,meta){pendingPoint=point;pendingMeta=meta;
+   if(painting)return;painting=true;
+   void(async()=>{try{while(pendingPoint){const p=pendingPoint,m=pendingMeta;pendingPoint=null;await paint(p,m);}}
+     catch(e){console.warn("Haikyuu mira",e);}finally{painting=false;}})();
+ }
+ async function animate(ball,landing){
+   const bounds=await OBR.scene.items.getItemBounds([ball.id]);
+   const center=bounds?.center||ball.position,from={...ball.position};
+   const to={x:from.x+landing.x-center.x,y:from.y+landing.y-center.y};
+   const [update,stop]=await OBR.interaction.startItemInteraction(ball);
+   try{const start=performance.now(),duration=1100;
+     while(true){const t=Math.min(1,(performance.now()-start)/duration),e=t*t*(3-2*t);
+       update(d=>{d.position={x:from.x+(to.x-from.x)*e,y:from.y+(to.y-from.y)*e};});
+       if(t>=1)break;await sleep(32);}
+   }finally{await stop();}
+   // Conserva o destino final após terminar a interação.
+   await OBR.scene.items.updateItems([ball.id],d=>{for(const i of d)i.position=to;});
+ }
+ async function doServe(point,meta){
+   if(executing)return;executing=true;
+   try{
+     if((await OBR.scene.grid.getType())!=="SQUARE")throw Error("A grade precisa ser quadrada.");
+     if(!SERVE_TYPES[meta?.serveType]||!meta?.serverId)throw Error("Prepare um Saque na ficha antes de mirar.");
+     if(meta?.rollConfirmed!==true||!Number.isInteger(meta?.natural)||meta.natural<1||meta.natural>20)
+       throw Error("Aguarde o resultado do D20 natural no Dice+ antes de confirmar o saque.");
+     const {aim}=await getAim(point,meta);if(!aim.valid)throw Error(aim.reason);
+     const balls=await OBR.scene.items.getItems(isBall);
+     if(balls.length!==1)throw Error("O mestre precisa definir exatamente uma bola em Montarias.");
+     if(balls[0].locked)throw Error("Desbloqueie a bola para movimentá-la.");
+     const state=(await OBR.scene.getMetadata())[LOCK];
+     if(state?.until>Date.now())throw Error("Outro saque está acontecendo.");
+     await OBR.scene.setMetadata({[LOCK]:{until:Date.now()+4500,by:await OBR.player.getId()}});
+     try{
+       const t=SERVE_TYPES[meta.serveType];
+       const [server]=await OBR.scene.items.getItems([meta.serverId]);
+       if(!isCharacter(server))throw Error("Sacador não encontrado.");
+       const serverBounds=await OBR.scene.items.getItemBounds([meta.serverId]);
+       const serverX=serverBounds?.center?.x??server.position.x;
+       const sourceTeam=teamOfX(serverX,court);
+       const naturalFail=meta.natural<=t.fail;
+       const chosen=naturalFail?forcedOutside(court,dpi,serverX<court.midX,point):pickCell(aim.cells);
+       const landedInside=!naturalFail&&inside(chosen,court,dpi*.001);
+       await removePreview();await animate(balls[0],chosen);
+       // O erro natural prevalece sobre quaisquer atributos e modificadores.
+       const previous=(await OBR.scene.getMetadata());
+       const score=cleanScore(previous[SCORE]);
+       const recipientTeam=opposite(sourceTeam);
+       if(!landedInside)score[recipientTeam]++;
+       const serveResult={type:meta.serveType,natural:meta.natural,total:meta.total,
+         serveId:meta.rollId||"",serverId:meta.serverId,sourceTeam,recipientTeam,
+         landing:chosen,inside:landedInside,ended:!landedInside,awaitingReception:landedInside,
+         receptionPending:false,timestamp:Date.now()};
+       await OBR.scene.setMetadata({[SCORE]:score,[RALLY]:serveResult});
+       if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
+       else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
+       else await notify(`🏐 ${t.name}: DENTRO! Recepção: ${t.receive}.`);
+       await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""});
+     }finally{await OBR.scene.setMetadata({[LOCK]:null}).catch(console.warn);}
+   }catch(e){console.error("Haikyuu saque",e);await notify(`Saque: ${e.message}`,"ERROR");}
+   finally{executing=false;}
+ }
+ // Após um erro no D20 natural, a bola sai automaticamente sem exigir uma mira manual.
+ OBR.broadcast.onMessage(`${ID}/auto-fault`,event=>{void(async()=>{
+   const data=event.data;
+   if(!data||data.playerId!==await OBR.player.getId()||!SERVE_TYPES[data.type])return;
+   const meta=await OBR.tool.getMetadata(TOOL);
+   if(meta?.rollId!==data.rollId||meta?.serverId!==data.serverId||meta?.rollConfirmed!==true)return;
+   if(!court)court=(await OBR.scene.getMetadata())[COURT];
+   if(!isCourt(court))return;
+   const [token]=await OBR.scene.items.getItems([data.serverId]);
+   if(!isCharacter(token))return;
+   const bounds=await OBR.scene.items.getItemBounds([data.serverId]);
+   const sourceX=bounds?.center?.x??token.position.x;
+   if(!dpi)dpi=await OBR.scene.grid.getDpi();
+   // Centro da metade oposta, para manter a mira virtual sempre dentro da faixa válida.
+   const point={x:court.midX+(sourceX<court.midX?3:-3)*dpi,y:(court.min.y+court.max.y)/2};
+   await doServe(point,meta);
+ })().catch(e=>{console.error("Haikyuu erro automático",e);void notify(`Erro automático: ${e.message}`,"ERROR");});});
+ await OBR.tool.createMode({id:SERVE,icons:[{icon:ICON,label:"Mirar Saque",filter:{activeTools:[TOOL]}}],cursors:[{cursor:"crosshair"}],
+   onActivate(){active=true;},onDeactivate(){active=false;void removePreview();},
+   onToolMove(ctx,e){onMouse(e.pointerPosition,ctx.metadata);},
+   onToolClick(ctx,e){void doServe(e.pointerPosition,ctx.metadata);return false;},
+   onToolDragCancel(){void removePreview();}
+ });
+ await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Calibrar Quadra (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
+   onActivate(){firstCorner=null;active=false;void removePreview();},onDeactivate(){firstCorner=null;},
+   onToolClick(_ctx,e){void(async()=>{
+     try{
+       if((await OBR.player.getRole())!=="GM")throw Error("Somente o mestre pode calibrar.");
+       if((await OBR.scene.grid.getType())!=="SQUARE")throw Error("Use a grade quadrada.");
+       const p=await OBR.scene.grid.snapPosition(e.pointerPosition,1,true,false);
+       if(!firstCorner){firstCorner=p;await notify("📍 Primeiro canto interno marcado. Clique no canto oposto.");return;}
+       const a=firstCorner;firstCorner=null;const size=await OBR.scene.grid.getDpi();
+       const min={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y)},max={x:Math.max(a.x,p.x),y:Math.max(a.y,p.y)};
+       const nx=(max.x-min.x)/size,ny=(max.y-min.y)/size;
+       if(Math.abs(nx-12)>.25||Math.abs(ny-6)>.25)throw Error(`Você marcou ${nx.toFixed(1)}×${ny.toFixed(1)} células. Marque 12×6 (18×9 m), com a rede na vertical.`);
+       const previous=(await OBR.scene.getMetadata())[COURT];
+       court={min,max,midX:(min.x+max.x)/2,allySide:allySide(previous),version:5};
+       await OBR.scene.setMetadata({[COURT]:court});
+       await notify("✅ Calibrada: interna 18×9 m; externa 24×15 m, com 3 m em todas as direções.");
+       await OBR.tool.activateMode(TOOL,SERVE);
+     }catch(err){await notify(`Quadra: ${err.message}`,"ERROR");}
+   })().catch(console.error);return false;}
+ });
+ OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;});
+ OBR.scene.grid.onChange(()=>{dpi=0;void removePreview();});
+ OBR.tool.onToolChange(t=>{if(t!==TOOL){active=false;void removePreview();}});
+ OBR.tool.onToolModeChange(m=>{if(m!==SERVE){active=false;void removePreview();}});
+ if(await OBR.scene.isReady()){
+   court=(await OBR.scene.getMetadata())[COURT]||null;
+   await openSelection(await OBR.player.getSelection());
+ }
+}
+
+// ======================== INTERFACE DA FICHA =======================
+async function startPanel(){
+ let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore();
+ let selectSerial=0,busy=false,editingProfile=false;const rolls=new Map();
+ // Autosave por token: edição otimista + 500ms de debounce, gravações em fila.
+ const pending=new Map(),timers=new Map(),chains=new Map(),localSheets=new Map();
+ let suppressEchoUntil=0;
+ function currentSheet(){return selectedId&&localSheets.has(selectedId)?localSheets.get(selectedId):sheetOf(selected);}
+ function saveBadge(text,bad=false){const label=document.querySelector("#autosave");if(label){label.textContent=text;label.classList.toggle("error",bad);}}
+ function stage(patch,now=false){
+   if(!selectedId||!isCharacter(selected))return;
+   suppressEchoUntil=Date.now()+900;
+   const id=selectedId,old=localSheets.get(id)||sheetOf(selected);
+   localSheets.set(id,mergePatch(old,patch));pending.set(id,mergePatch(pending.get(id)||{},patch));
+   clearTimeout(timers.get(id));timers.delete(id);
+   saveBadge("● Salvando automaticamente...");
+   if(now)void flush(id);else timers.set(id,setTimeout(()=>void flush(id),500));
+ }
+ async function flush(id){
+   clearTimeout(timers.get(id));timers.delete(id);
+   const patch=pending.get(id);if(!patch)return chains.get(id)||Promise.resolve();
+   pending.delete(id);
+   const prev=chains.get(id)||Promise.resolve();
+   const job=prev.catch(()=>{}).then(()=>OBR.scene.items.updateItems([id],draft=>{
+     for(const i of draft){const saved=i.metadata[SHEET]||{},original=sheetOf(i);
+       const data=mergePatch(original,patch);
+       i.metadata[SHEET]={...saved,...data,attributes:data.attributes};
+     }
+   }));
+   chains.set(id,job);
+   try{
+     await job;
+     if(!pending.has(id)&&chains.get(id)===job){
+       // Mantém a edição visível até o Owlbear confirmar o valor atualizado.
+       const [fresh]=await OBR.scene.items.getItems([id]);
+       if(fresh&&selectedId===id)selected=fresh;
+       localSheets.delete(id);
+       saveBadge("✓ Salvo no token");
+     }
+   }catch(err){
+     console.error("Haikyuu autosave",err);
+     pending.set(id,mergePatch(patch,pending.get(id)||{}));
+     saveBadge("Erro ao salvar — altere um campo para tentar novamente",true);
+   }finally{if(chains.get(id)===job)chains.delete(id);}
+ }
+ function numericField(raw,kind){
+   if(raw.trim()==="")return null;
+   const n=Number(raw);
+   if(!Number.isFinite(n))return undefined;
+   if(kind==="level")return Number.isInteger(n)&&n>=1&&n<=9999?n:undefined;
+   if(kind==="heightCm")return n>0&&n<=350?Math.round(n*10)/10:undefined;
+   if(kind==="jumpCm")return n>=0&&n<=500?Math.round(n*10)/10:undefined;
+   return undefined;
+ }
+ 
+ const status=(m,type="ok")=>{message=m;messageType=type;render();};
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.8</small></div>
+ <button data-act="close" aria-label="Fechar ficha">✕</button></div>
+ ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
+ function choose(){return `<section class="card"><p class="kicker">Token selecionado</p><h2>${escapeHTML(sheetOf(selected).name)}</h2>
+ <p class="small">Escolha a ficha. Apenas a escolhida ficará visível.</p><div class="controls">
+ <button data-view="jogador">👤 Ficha Jogador</button><button data-view="mestre" ${role==="GM"?"":"disabled"}>⚙️ Ficha Mestre</button>
+ <button data-view="npc">🎭 Ficha NPC</button></div></section>`;}
+ function attributes(s,editable){return `<section class="card"><h2>🎲 Atributos</h2><p class="small">Teste: 1d20 + valor, pelo Dice+.</p>
+ ${ATTRS.map(a=>`<div class="attr"><label>${a}</label>${editable
+ ? `<input type="number" data-attr="${a}" value="${s.attributes[a]}" min="0" max="${s.level===1?INITIAL_ATTRIBUTE_CAP:9999}">`
+ : `<strong style="text-align:center;color:#ffe4a5;font-size:17px">${s.attributes[a]}</strong>`}
+ <button data-roll="${a}" ${busy?"disabled":""}>🎲 Rolar</button></div>`).join("")}
+ <p class="small">${editable?"Ajustes de atributos pelo mestre.":"Atributos definidos na criação. Evoluções futuras serão controladas pelo mestre."}</p></section>`;}
+ function positionSelect(s,editable){return `<label class="field">Posição
+ <select data-profile="position" ${editable?"":"disabled"}>
+ <option value="">Selecione sua posição</option>
+ ${POSITIONS.map(p=>`<option value="${escapeHTML(p)}" ${s.position===p?"selected":""}>${escapeHTML(p)}</option>`).join("")}
+ </select></label>`;}
+ function profileFields(s,editable){return `
+ <label class="field">Nome do personagem<input type="text" data-profile="name" maxlength="80" value="${escapeHTML(s.name)}" placeholder="Nome do atleta" ${editable?"":"disabled"}></label>
+ ${positionSelect(s,editable&&(!s.created||role==="GM"))}
+ <div class="profile-grid"><label class="field">Altura (cm)<input type="number" data-profile="heightCm" min="1" max="350" step="0.1" placeholder="Ex.: 180" value="${s.heightCm??""}" ${editable?"":"disabled"}></label>
+ <label class="field">Impulsão (cm)<input type="number" data-profile="jumpCm" min="0" max="500" step="0.1" placeholder="Ex.: 65" value="${s.jumpCm??""}" ${editable?"":"disabled"}></label></div>
+ <label class="field">Nível<input type="number" data-profile="level" min="1" max="9999" step="1" value="${s.level}" ${editable?"":"disabled"}></label>`;}
+ function bonusBuilder(s,editable){
+   if(!s.position)return `<p class="small">Escolha uma posição para receber os 7 pontos iniciais e liberar a distribuição.</p>`;
+   const used=pointsSpent(s),remaining=Math.max(0,INITIAL_BONUS_POINTS-used),base=PRESETS[s.position];
+   return `<div class="points-summary"><div><b>3 pontos livres do nível 1</b><small>Distribua como quiser, sem passar de 5 por atributo.</small></div>
+     <strong aria-label="Pontos restantes">${remaining}/3</strong></div>
+   <div class="bonus-head"><span>Atributo</span><span>Base</span><span>−</span><span>Total</span><span>+</span></div>
+   ${ATTRS.map(a=>{
+     const extra=s.creationBonus[a]||0,total=base[a]+extra;
+     return `<div class="bonus-line"><span class="attr-name">${escapeHTML(a)}</span><span class="value">${base[a]}${extra?`<small>+${extra}</small>`:""}</span>
+       <button type="button" data-bonus="${a}" data-delta="-1" aria-label="Remover um ponto de ${a}" ${!editable||extra<=0?"disabled":""}>−</button>
+       <span class="sum">${total}</span>
+       <button type="button" class="plus" data-bonus="${a}" data-delta="1" aria-label="Adicionar um ponto a ${a}" ${!editable||remaining<=0||total>=INITIAL_ATTRIBUTE_CAP?"disabled":""}>+</button></div>`;
+   }).join("")}
+   <p class="bonus-guide">${remaining===0?"✅ Todos os 3 pontos foram distribuídos.":`Faltam ${remaining} ponto(s) para concluir.`} O limite inicial é 5 em cada atributo.</p>`;
+ }
+ function summary(s){return `<div class="profile-summary">
+   <div class="item"><small>Posição</small><b>${escapeHTML(s.position||"—")}</b></div>
+   <div class="item"><small>Nível</small><b>${s.level}</b></div>
+   <div class="item"><small>Altura</small><b>${s.heightCm??"—"} cm</b></div>
+   <div class="item"><small>Impulsão</small><b>${s.jumpCm??"—"} cm</b></div>
+   </div>`;}
+ function serveCard(){return `<section class="card serve"><p class="kicker">Gameplay • Rally</p><h2>🏐 Tipos de Saque</h2>
+   <p class="small">Escolha o saque: a rolagem do Dice+ será iniciada automaticamente. O erro depende apenas do D20 natural.</p>
+   <div class="serve-list">${Object.entries(SERVE_TYPES).map(([key,t])=>`<button class="serve-option" data-serve="${key}" ${busy?"disabled":""}>
+     <span>🏐 ${t.name}<small>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
+   <p class="small">Mira temporária: 1,5 × 1,5 m para todos. As áreas definitivas dos outros três tipos ainda serão configuradas.</p>
+   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre deve calibrar a quadra"}. Para mirar, use a ferramenta 🏐 se ela ainda não estiver selecionada.</p></section>`;}
+ function receiveCard(){
+   if(!isCharacter(selected)||!rally?.awaitingReception||!SERVE_TYPES[rally.type]||!isCourt(court))return "";
+   const t=SERVE_TYPES[rally.type];
+   const waiting=rally.receptionPending;
+   return `<section class="card reception-card"><p class="kicker">Recepção do Saque</p><h2>🛡️ ${t.receive}</h2>
+    <p class="small">${t.name} recebido: ${t.receptionAttr} ${t.advantage==="adv"?"com vantagem (2d20, maior)":t.advantage==="dis"?"com desvantagem (2d20, menor)":"normal (1d20)"}.</p>
+    <button class="wide blue" data-act="receive" ${busy||waiting?"disabled":""}>${waiting?"⏳ Recepção em andamento":"🎲 Rolar recepção pelo Dice+"}</button>
+    <p class="small">O resultado aparece aqui; a disputa entre ataque e recepção será definida nas próximas mecânicas.</p></section>`;
+ }
+ function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
+   if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
+     <h2>🏐 Montando seu Jogador</h2><div class="creation-steps"><span>1 • Seus dados</span><span>2 • 3 pontos extras</span><span>3 • Confirmar</span></div>
+     <p class="small">Sua posição concede 7 pontos automaticamente. No nível 1, você recebe mais 3 pontos livres, com limite de 5 por atributo.</p>
+     ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>
+     <h2>🎯 Distribuição de atributos</h2>${bonusBuilder(s,editable)}
+     <button class="primary wide" data-act="finish-creation" ${editable&&s.position&&pointsSpent(s)===INITIAL_BONUS_POINTS?"":"disabled"}>✓ Confirmar jogador e abrir ficha</button>
+     <p class="tip">Os dados e os pontos ficam salvos neste token antes da confirmação. Você só conclui quando distribuir os 3 pontos.</p></section>`;
+   if(!npc)return `<section class="card"><p class="kicker">Ficha Jogador • ${escapeHTML(s.position||"Atleta")}</p>
+     <h2>🏐 ${escapeHTML(s.name||"Atleta")}</h2>${summary(s)}
+     <div class="pill-ok">✓ Personagem criado</div>
+     <button class="wide" style="margin-top:10px" data-act="toggle-profile">${editingProfile?"Ocultar edição dos dados":"✎ Editar informações"}</button>
+     ${editingProfile?`<p class="small">Você pode atualizar seus dados. A posição fica bloqueada para jogadores após a criação; o mestre pode alterá-la.</p>
+       ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>`:""}
+     </section>
+     ${attributes(s,role==="GM")}
+     ${serveCard()}${receiveCard()}`;
+   return `<section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
+     <label class="field">Nome<input data-profile="name" maxlength="80" value="${escapeHTML(s.name)}" ${editable?"":"disabled"}></label>
+     <div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div></section>
+     ${attributes(s,editable)}
+     ${serveCard()}${receiveCard()}`;
+ }
+ function ballPanel(){return `<section class="card"><p class="kicker">Montarias</p><h2>${isBall(selected)?"🏐 Bola oficial":"Objeto selecionado"}</h2>
+ <p class="small">${escapeHTML(selected?.name||"Objeto")}</p>
+ ${role==="GM"?`<button class="wide primary" data-act="${isBall(selected)?"unmark":"mark"}">${isBall(selected)?"Desmarcar bola":"🏐 Definir como bola"}</button>`:'<p class="small">Somente o mestre pode definir a bola.</p>'}</section>`;}
+ function gmPanel(){if(role!=="GM")return '<section class="card">Acesso restrito ao mestre.</section>';
+ return `<section class="card"><p class="kicker">Ficha Mestre</p><h2>⚙️ Partida</h2>
+ <div class="stat"><span>Quadra</span><b>${isCourt(court)?"Calibrada":"Pendente"}</b></div>
+ <div class="stat"><span>Bolas oficiais</span><b>${items.filter(isBall).length}</b></div>
+ <div class="stat"><span>NPCs</span><b>${items.filter(i=>isCharacter(i)&&sheetOf(i).kind==="npc").length}</b></div>
+ <p class="small">Grade: ${escapeHTML(grid||"não definida")}. Referência do RPG: 1 casa = 1,5 m.</p></section>
+ <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Aliados<strong>${score.allies}</strong></div><div>Inimigos<strong>${score.enemies}</strong></div></div>
+ <p class="small">${rally?.ended?"Último rally encerrado: bola fora.":rally?.awaitingReception?"Rally aberto: aguardando recepção.":"Nenhuma recepção pendente."}</p>
+ <button class="wide" data-act="reset-score">Zerar placar (Mestre)</button></section>
+ <section class="card"><h2>🏐 Lados das equipes</h2><p class="small">Escolha o lado dos aliados. Os inimigos ficam automaticamente no lado oposto.</p>
+ <label class="radio"><input type="radio" name="ally" value="LEFT" ${allySide(court)==="LEFT"?"checked":""}> Aliados à esquerda / Inimigos à direita</label>
+ <label class="radio"><input type="radio" name="ally" value="RIGHT" ${allySide(court)==="RIGHT"?"checked":""}> Aliados à direita / Inimigos à esquerda</label>
+ <p class="small">Configuração compartilhada para toda a sala, inclusive os saques dos NPCs.</p></section>
+ <section class="card"><h2>📐 Calibrar quadra</h2><p class="small"><b>Interna:</b> 18 × 9 m (12 × 6 casas). <b>Externa:</b> 24 × 15 m (16 × 10 casas), incluindo 3 m além de cada linha.</p>
+ <p class="small">Clique em calibrar e marque no mapa os dois cantos opostos das <b>linhas internas</b>. O plugin acrescenta automaticamente a região exterior.</p>
+ <button class="primary wide" data-act="calibrate">${isCourt(court)?"Recalibrar quadra":"Calibrar quadra"}</button></section>
+ ${isCharacter(selected)?`<section class="card"><h2>Classificar token</h2><div class="controls"><button data-act="type-player">👤 Registrar como Jogador</button><button data-act="type-npc">🎭 Registrar como NPC</button></div></section>`:""}
+ ${selected?.layer==="MOUNT"?ballPanel():""}`;}
+ function render(){let body="";
+   if(isCharacter(selected))body=view==="choose"?choose():view==="mestre"?gmPanel():characterSheet(view);
+   else if(selected?.layer==="MOUNT")body=ballPanel();
+   else if(view==="mestre"&&role==="GM")body=gmPanel();
+   else body=`<section class="card"><h2>Selecione um token</h2><p class="small">Clique no token de personagem. A ficha abre à esquerda, sem cobrir as ferramentas à direita.</p>
+     ${role==="GM"?'<button class="wide primary" data-act="master-no-token">⚙️ Abrir ficha Mestre</button>':""}</section>`;
+   app.innerHTML=header()+`<main>${message?`<div class="notice ${escapeHTML(messageType)}" role="status">${escapeHTML(message)}</div>`:""}${body}<footer>Haikyuu!! Road to the Top • Dice+</footer></main>`;
+ }
+ async function selectedChanged(ids){const id=ids?.length===1?ids[0]:null,serial=++selectSerial;
+   if(id!==selectedId){
+     const previous=selectedId;if(previous&&pending.has(previous))void flush(previous);
+     view="choose";editingProfile=false;message="";
+   }selectedId=id;
+   if(!id||!(await OBR.scene.isReady())){selected=null;render();return;}
+   const [i]=await OBR.scene.items.getItems([id]);if(serial!==selectSerial)return;
+   selected=i||null;render();
+ }
+ async function saveSheet(patch,id=selectedId){if(!id)throw Error("Selecione um personagem.");
+   if(id===selectedId){stage(patch,true);await flush(id);return;}
+   await OBR.scene.items.updateItems([id],draft=>{for(const i of draft){const old=i.metadata[SHEET]||{},data=mergePatch(sheetOf(i),patch);i.metadata[SHEET]={...old,...data};}});
+ }
+ async function prepare(mode,metadata){await OBR.tool.setMetadata(TOOL,metadata);await OBR.tool.activateMode(TOOL,mode);}
+ async function readyDice(){const requestId=newId();return new Promise(resolve=>{
+   let done=false,timer;const finish=val=>{if(done)return;done=true;clearTimeout(timer);unsubscribe();resolve(val);};
+   const unsubscribe=OBR.broadcast.onMessage("dice-plus/isReady",event=>{
+     if(event.data?.ready===true&&event.data.requestId===requestId)finish(true);
+   });
+   timer=setTimeout(()=>finish(false),1600);
+   OBR.broadcast.sendMessage("dice-plus/isReady",{requestId,timestamp:Date.now()},{destination:"ALL"}).catch(()=>finish(false));
+ });}
+ // Dice+ é a única fonte do dado; não simulamos D20 local como substituto.
+ async function requestDice(notation,label,requireNatural=false){
+   if(!(await readyDice()))throw Error("Dice+ não respondeu. Confira se está ativado na sala.");
+   const id=newId();
+   return new Promise(async(resolve,reject)=>{
+     const timer=setTimeout(()=>{
+       if(rolls.has(id)){rolls.delete(id);reject(Error("O Dice+ não retornou o resultado. Tente novamente."));}
+     },45000);
+     rolls.set(id,{label,requireNatural,resolve:r=>{clearTimeout(timer);resolve({...r,notation,rollId:id});},reject:e=>{clearTimeout(timer);reject(e);}});
+     try{
+       await OBR.broadcast.sendMessage("dice-plus/roll-request",{
+         rollId:id,playerId:await OBR.player.getId(),playerName:await OBR.player.getName(),rollTarget:"everyone",
+         diceNotation:notation,showResults:true,timestamp:Date.now(),source:ID
+       },{destination:"ALL"});
+     }catch(e){const pending=rolls.get(id);if(pending){rolls.delete(id);pending.reject(e);}}
+   });
+ }
+ function makeNotation(modifier,dice="1d20"){
+   return `${dice}${modifier<0?"-":"+"}${Math.abs(modifier)}`;
+ }
+ async function roll(attr){
+   const s=currentSheet();
+   const n=makeNotation(s.attributes[attr]);
+   const r=await requestDice(n,`${s.name} • ${attr}`);
+   return `${n} = ${r.total}${r.natural!==null?` (D20 natural ${r.natural})`:""}`;
+ }
+ async function startServe(type){
+   const t=SERVE_TYPES[type];
+   if(!t)throw Error("Tipo de Saque inválido.");
+   if(view==="jogador"&&!currentSheet().created)throw Error("Conclua a criação antes de sacar.");
+   if(!isCourt(court))throw Error("O mestre precisa calibrar a quadra.");
+   if(items.filter(isBall).length!==1)throw Error("O mestre deve definir uma bola em Montarias.");
+   if(!isCharacter(selected))throw Error("Selecione o sacador.");
+   if(rally?.awaitingReception)throw Error("O Rally anterior ainda aguarda a recepção.");
+   if((await OBR.scene.getMetadata())[LOCK]?.until>Date.now())throw Error("Aguarde o saque atual terminar.");
+   const serverId=selectedId;
+   const s=currentSheet();
+   const modifier=s.attributes.Saque+t.mod;
+   // A mira fica preparada enquanto os dados rolam; um clique antes do resultado não lança a bola.
+   await prepare(SERVE,{serverId,serveType:type,rollConfirmed:false,natural:0,total:0,rollId:""});
+   status(`🎲 ${t.name}: rolando ${makeNotation(modifier)} no Dice+…`);
+   try{
+     const r=await requestDice(makeNotation(modifier),`${s.name} • ${t.name}`,true);
+     if(selectedId!==serverId)throw Error("O token selecionado mudou durante o saque. Prepare novamente.");
+     await prepare(SERVE,{serverId,serveType:type,rollConfirmed:true,natural:r.natural,total:r.total,rollId:r.rollId});
+     const activeTool=await OBR.tool.getActiveTool();
+     const fail=r.natural<=t.fail;
+     if(fail){
+       status(`🚫 ${t.name}: D20 natural ${r.natural}. Erro automático! A bola será animada para fora e o adversário ganha 1 ponto.`,"warn");
+       await OBR.broadcast.sendMessage(`${ID}/auto-fault`,{
+         playerId:await OBR.player.getId(),serverId,type,rollId:r.rollId
+       },{destination:"ALL"});
+     }else{
+       status(`🎲 ${t.name}: D20 natural ${r.natural}; total ${r.total}. Mire no lado adversário. ${activeTool!==TOOL?"Selecione a ferramenta 🏐 uma vez na barra do Owlbear.":"Mira pronta."}`,
+         activeTool!==TOOL?"warn":"ok");
+     }
+   }catch(err){
+     await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""}).catch(console.warn);
+     throw err;
+   }
+ }
+ async function receiveServe(){
+   const meta=await OBR.scene.getMetadata();const current=meta[RALLY];
+   if(!current?.awaitingReception||current.receptionPending||!SERVE_TYPES[current.type])throw Error("Não há uma recepção disponível.");
+   if(!isCharacter(selected)||!isCourt(court))throw Error("Selecione o token recebedor.");
+   const [item]=await OBR.scene.items.getItems([selectedId]);
+   const bounds=await OBR.scene.items.getItemBounds([selectedId]);
+   const x=bounds?.center?.x??item.position.x;
+   if(teamOfX(x,court)!==current.recipientTeam)throw Error("O recebedor deve estar no lado da equipe que recebeu o saque.");
+   const s=currentSheet(),t=SERVE_TYPES[current.type];
+   const notation=receptionNotation(current.type,s.attributes[t.receptionAttr]);
+   await OBR.scene.setMetadata({[RALLY]:{...current,receptionPending:true,receiverId:selectedId}});
+   try{
+     status(`🛡️ ${t.receive}: rolando ${notation} no Dice+…`);
+     const r=await requestDice(notation,`${s.name} • ${t.receive}`);
+     const latest=(await OBR.scene.getMetadata())[RALLY];
+     if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp)throw Error("O Rally mudou durante a recepção.");
+     await OBR.scene.setMetadata({[RALLY]:{...latest,receptionPending:false,awaitingReception:false,
+       reception:{receiverId:selectedId,total:r.total,natural:r.natural,notation},ended:false}});
+     status(`🛡️ ${t.receive}: total ${r.total}. Recepção realizada!`);
+   }catch(e){
+     const latest=(await OBR.scene.getMetadata())[RALLY];
+     if(latest?.timestamp===current.timestamp)await OBR.scene.setMetadata({[RALLY]:{...latest,receptionPending:false}});
+     throw e;
+   }
+ }
+ app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
+   if(b.dataset.view){view=b.dataset.view;editingProfile=false;message="";render();return;}
+   if(busy)return;
+   if(b.dataset.serve){
+     busy=true;render();
+     try{await startServe(b.dataset.serve);}catch(err){console.error(err);status(err.message,"error");}
+     finally{busy=false;render();}return;
+   }
+   if(b.dataset.bonus){
+     if(view!=="jogador"||!isCharacter(selected))return;
+     const s=currentSheet(),a=b.dataset.bonus,delta=Number(b.dataset.delta);
+     if(s.created||!POSITIONS.includes(s.position)||!ATTRS.includes(a)||![-1,1].includes(delta))return;
+     const spent=pointsSpent(s),current=s.creationBonus[a]||0,base=PRESETS[s.position][a];
+     const next=current+delta;
+     if(next<0||next+base>INITIAL_ATTRIBUTE_CAP||spent+delta>INITIAL_BONUS_POINTS)return;
+     const creationBonus={...s.creationBonus,[a]:next};
+     stage({creationBonus,attributes:{[a]:base+next}},false);
+     message="";render();return;
+   }
+   // Evita perder texto digitado no clique e garante que a criação está persistida.
+   if(selectedId&&pending.has(selectedId))await flush(selectedId);
+   busy=true;render();
+   try{
+     if(b.dataset.roll){status(`🎲 ${await roll(b.dataset.roll)}`);return;}
+     switch(b.dataset.act){
+       case "finish-creation":{
+         const s=currentSheet();
+         if(!s.name.trim())throw Error("Informe o nome do jogador.");
+         if(!s.position)throw Error("Escolha uma das cinco posições.");
+         if(!(s.heightCm>0))throw Error("Informe sua altura em centímetros.");
+         if(s.jumpCm===null)throw Error("Informe sua impulsão em centímetros (pode ser 0).");
+         if(!Number.isInteger(s.level)||s.level<1)throw Error("Informe um nível válido.");
+         if(pointsSpent(s)!==INITIAL_BONUS_POINTS)throw Error("Distribua exatamente 3 pontos extras antes de confirmar.");
+         if(ATTRS.some(a=>s.attributes[a]!==PRESETS[s.position][a]+s.creationBonus[a] || s.attributes[a]>INITIAL_ATTRIBUTE_CAP))
+           throw Error("A distribuição deve respeitar o limite de 5 pontos por atributo.");
+         await saveSheet({created:true,kind:"jogador"});
+         editingProfile=false;
+         status("🏐 Jogador confirmado! Ficha de status e ações liberada.");break;
+       }
+       case "close":
+         if(selectedId)await flush(selectedId);
+         await Promise.allSettled([OBR.popover.close(PANEL_ID),OBR.action.close()]);break;
+       case "switch":view="choose";editingProfile=false;message="";render();break;
+       case "toggle-profile":editingProfile=!editingProfile;render();break;
+       case "master-no-token":view="mestre";render();break;
+       case "type-player":await saveSheet({kind:"jogador"});status("Token registrado como Jogador.");break;
+       case "type-npc":await saveSheet({kind:"npc"});status("Token registrado como NPC.");break;
+       case "mark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,true);status("🏐 Bola oficial definida.");break;
+       case "unmark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,false);status("Bola desmarcada.");break;
+       case "calibrate":if(role!=="GM")throw Error("Só o mestre calibra.");await prepare(CALIBRATE,{serverId:"",serveType:""});
+         status("Selecione a ferramenta 🏐 do Owlbear, depois clique nos dois cantos internos da quadra.");break;
+       case "receive":await receiveServe();break;
+       case "reset-score":
+         if(role!=="GM")throw Error("Apenas o mestre pode zerar o placar.");
+         await OBR.scene.setMetadata({[SCORE]:{allies:0,enemies:0}});
+         status("Placar zerado pelo Mestre.");break;
+     }
+   }catch(err){console.error(err);status(err.message,"error");}
+   finally{busy=false;render();}
+ });
+ function handleProfile(input,immediate){
+   if(!isCharacter(selected)||!selectedId)return;
+   const field=input.dataset.profile;
+   if(field){
+     if(field==="position"){
+       const position=input.value;
+       if(!POSITIONS.includes(position))return;
+       const s=currentSheet();
+       if(s.created&&role!=="GM")return;
+       if(s.position===position)return;
+       const patch=!s.created?{position,attributes:{...PRESETS[position]},creationBonus:emptyBonuses()}:{position};
+       stage(patch,true);
+       if(s.created)message="Posição atualizada pelo mestre. Atributos atuais preservados.";
+       render();return;
+     }
+     if(field==="name"){stage({name:input.value.slice(0,80)},immediate);return;}
+     if(["heightCm","jumpCm","level"].includes(field)){
+       const n=numericField(input.value,field);
+       if(n===undefined){saveBadge("Confira o valor informado",true);return;}
+       stage({[field]:n},immediate);return;
+     }
+   }
+   const attr=input.dataset.attr;
+   if(ATTRS.includes(attr)){
+     const s=currentSheet();
+     if(s.created&&role!=="GM")return;
+     const raw=input.value.trim(),n=Number(raw);
+     if(raw===""||!Number.isInteger(n)||n<0|| (s.level===1&&n>INITIAL_ATTRIBUTE_CAP)){
+       saveBadge(`Atributo inválido${s.level===1?" (máximo 5 no nível 1)":""}`,true);return;
+     }
+     stage({attributes:{[attr]:clamp(n,0,9999)}},immediate);
+   }
+ }
+ app.addEventListener("input",e=>{
+   if(e.target instanceof HTMLInputElement&&(e.target.dataset.profile||e.target.dataset.attr))handleProfile(e.target,false);
+ });
+ app.addEventListener("change",async e=>{
+   const input=e.target;
+   if(input instanceof HTMLInputElement&&input.name==="ally"){
+     try{
+       if(role!=="GM")throw Error("Apenas o mestre escolhe os lados.");
+       const meta=await OBR.scene.getMetadata(),current=meta[COURT]||{};
+       await OBR.scene.setMetadata({[COURT]:{...current,allySide:input.value==="RIGHT"?"RIGHT":"LEFT"}});
+       status(`✅ Aliados à ${input.value==="RIGHT"?"direita":"esquerda"}; inimigos no lado oposto.`);
+     }catch(err){status(err.message,"error");}
+     return;
+   }
+   if(input instanceof HTMLInputElement||input instanceof HTMLSelectElement){
+     if(input.dataset.profile||input.dataset.attr){handleProfile(input,true);await flush(selectedId);}
+   }
+ });
+ app.addEventListener("focusout",e=>{
+   if(e.target instanceof HTMLInputElement&&(e.target.dataset.profile||e.target.dataset.attr)){
+     if(selectedId&&pending.has(selectedId))void flush(selectedId);
+   }
+ });
+ OBR.scene.items.onChange(all=>{items=all;selected=selectedId?all.find(i=>i.id===selectedId)||null:null;
+   if(Date.now()>suppressEchoUntil && !(document.activeElement instanceof HTMLInputElement) && !(document.activeElement instanceof HTMLSelectElement))render();
+ });
+ OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);render();});
+ OBR.scene.grid.onChange(g=>{grid=g.scale;render();});
+ OBR.player.onChange(p=>{role=p.role;const id=p.selection?.length===1?p.selection[0]:null;
+   if(id!==selectedId)void selectedChanged(p.selection).catch(console.error);
+ });
+ OBR.scene.onReadyChange(ready=>{if(ready)void boot().catch(console.error);
+   else{items=[];selected=null;selectedId=null;court=null;rally=null;score=cleanScore();view="choose";editingProfile=false;render();}
+ });
+ OBR.broadcast.onMessage(`${ID}/roll-result`,e=>{
+   const data=e.data,req=rolls.get(data?.rollId);
+   if(!req)return;
+   rolls.delete(data.rollId);
+   const total=data?.result?.totalValue,natural=dieFromResult(data);
+   if(!Number.isFinite(total)||req.requireNatural&&natural===null){
+     req.reject(Error("O Dice+ não enviou um D20 natural identificável. O saque foi cancelado por segurança."));return;
+   }
+   req.resolve({total,natural});
+ });
+ OBR.broadcast.onMessage(`${ID}/roll-error`,e=>{
+   const data=e.data,req=rolls.get(data?.rollId);
+   if(!req)return;rolls.delete(data.rollId);
+   req.reject(Error(`Dice+: ${data.error||"falha na rolagem"}`));
+ });
+ async function boot(){if(!(await OBR.scene.isReady())){render();return;}
+   const [all,meta,scale,sel]=await Promise.all([OBR.scene.items.getItems(),OBR.scene.getMetadata(),OBR.scene.grid.getScale(),OBR.player.getSelection()]);
+   items=all;court=meta[COURT]||null;rally=meta[RALLY]||null;score=cleanScore(meta[SCORE]);grid=scale.raw||"1,5m";
+   await selectedChanged(sel);
+ }
+ await boot();
+}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.8</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
+ console.error("Haikyuu inicialização:",err);
+ if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
+});});
+</script></body></html>
