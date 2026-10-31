@@ -1,8 +1,9 @@
+
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.9.0",
+  "version": "0.13.0",
   "manifest_version": 1,
-  "description": "Fichas de jogador/mestre/NPC, Dice+, saques consecutivos, placar e bola animada.",
+  "description": "Passe A/B/C/D/Ace, ficha da bola, timer com Play/Pause exclusivo do mestre e Levantamento Dice+.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
