@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.12</title>
+<title>Haikyuu!! Road to the Top — 0.14</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -58,10 +58,10 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.13 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.14 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
-// Para esta quadra, o contorno EXTERNO mede 18×11 células.
-// A área verde INTERNA mede 14×7 células; margem: 2 células em cada direção.
+// O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
+// A área de fora é o complemento das quadras A/B.
 // Cada célula representa 1,5 metro (configuração do nosso RPG).
 // ================================================================
 const ID="br.com.haikyuu.rtt"; // Mantém compatibilidade com fichas anteriores
@@ -98,8 +98,15 @@ const emptyBonuses=()=>Object.fromEntries(ATTRS.map(a=>[a,0]));
 const pointsSpent=s=>ATTRS.reduce((total,a)=>total+(s.creationBonus?.[a]||0),0);
 // Cada casa vale 1,5 m. Valores correspondem à borda branca da imagem,
 // não à régua posicionada meio quadrado para dentro.
-const COURT_CELLS=Object.freeze({outerX:18,outerY:11,insideX:14,insideY:7,margin:2});
-const COURT_CALIBRATION_VERSION=6;
+// Nenhum tamanho fixo de quadra. O mestre marca manualmente todas as bordas.
+const COURT_CALIBRATION_VERSION=7;
+const CAL_TASKS={
+ outer:{label:"Área total (inclui FORA)",color:"#ef4444"},
+ a:{label:"Quadra Time A",color:"#38bdf8"},
+ b:{label:"Quadra Time B",color:"#4ade80"},
+ lineA:{label:"Linha dos 3 m — Time A",color:"#fbbf24"},
+ lineB:{label:"Linha dos 3 m — Time B",color:"#fbbf24"}
+};
 const PANEL_ID=ID+"/left-sheet";
 const background=new URLSearchParams(location.search).has("background");
 const app=document.querySelector("#app");
@@ -113,7 +120,43 @@ const isBall=i=>i?.layer==="MOUNT" && i?.metadata?.[BALL]===true;
 const isCharacter=i=>i?.layer==="CHARACTER";
 const cleanScore=s=>({allies:Math.max(0,Math.trunc(finite(s?.allies))),enemies:Math.max(0,Math.trunc(finite(s?.enemies)))});
 const opposite=t=>t==="allies"?"enemies":"allies";
-const teamOfX=(x,c)=> (x<c.midX)===(allySide(c)==="LEFT")?"allies":"enemies";
+// As equipes são definidas pelos retângulos pintados, não por um meio de quadra fixo.
+function courtRect(c,team){return c?.areas?.[team==="allies"?"a":"b"]||null;}
+function rectCenter(r){return {x:(r.min.x+r.max.x)/2,y:(r.min.y+r.max.y)/2};}
+function rectValid(r){return r&&[r.min?.x,r.min?.y,r.max?.x,r.max?.y].every(Number.isFinite)&&r.min.x<r.max.x&&r.min.y<r.max.y;}
+function rectContains(outer,inner,eps=0){return rectValid(outer)&&rectValid(inner)&&
+ inner.min.x>=outer.min.x-eps&&inner.max.x<=outer.max.x+eps&&inner.min.y>=outer.min.y-eps&&inner.max.y<=outer.max.y+eps;}
+function courtLayout(c){
+ const a=c?.areas?.a,b=c?.areas?.b;
+ if(!rectValid(a)||!rectValid(b))return null;
+ const A=rectCenter(a),B=rectCenter(b),axis=Math.abs(A.x-B.x)>=Math.abs(A.y-B.y)?"x":"y";
+ const cross=axis==="x"?"y":"x";
+ const aFirst=A[axis]<B[axis];
+ const aFace=aFirst?a.max[axis]:a.min[axis],bFace=aFirst?b.min[axis]:b.max[axis];
+ if((aFirst?aFace>bFace:bFace>aFace) || Math.max(a.min[cross],b.min[cross])>=Math.min(a.max[cross],b.max[cross]))return null;
+ return {axis,cross,aFirst,net:(aFace+bFace)/2, aFace,bFace};
+}
+function distanceToRect(p,r){
+ const dx=Math.max(r.min.x-p.x,0,p.x-r.max.x),dy=Math.max(r.min.y-p.y,0,p.y-r.max.y);
+ return dx*dx+dy*dy;
+}
+function teamOfPosition(p,c){
+ if(inside(p,courtRect(c,"allies")||{min:{x:Infinity,y:Infinity},max:{x:-Infinity,y:-Infinity}}))return "allies";
+ if(inside(p,courtRect(c,"enemies")||{min:{x:Infinity,y:Infinity},max:{x:-Infinity,y:-Infinity}}))return "enemies";
+ const a=courtRect(c,"allies"),b=courtRect(c,"enemies");
+ if(!rectValid(a)||!rectValid(b))return null;
+ return distanceToRect(p,a)<=distanceToRect(p,b)?"allies":"enemies";
+}
+function courtZone(p,c){
+ if(!isCourt(c))return "Quadra ainda não definida";
+ const team=inside(p,c.areas.a)?"a":inside(p,c.areas.b)?"b":null;
+ if(!team)return "FORA DA QUADRA";
+ const label=team==="a"?"Time A":"Time B",layout=courtLayout(c),line=c.lines?.[team];
+ if(!Number.isFinite(line))return label+" — linha dos 3 m pendente";
+ const towardNet=team==="a"?layout.aFirst:!layout.aFirst;
+ const front=towardNet?p[layout.axis]>=line:p[layout.axis]<=line;
+ return label+(front?" — ATÉ a linha dos 3 m (frente)":" — DEPOIS da linha dos 3 m (fundo)");
+}
 const dieFromResult=data=>{
  const dice=data?.result?.groups?.filter(g=>g.diceType==="d20").flatMap(g=>g.dice||[])||[];
  const used=dice.filter(d=>d.kept!==false);
@@ -124,19 +167,21 @@ function receptionNotation(type,value){
  const t=SERVE_TYPES[type],base=t.advantage==="adv"?"2d20kh1":t.advantage==="dis"?"2d20kl1":"1d20";
  return `${base}${value<0?"-":"+"}${Math.abs(value)}`;
 }
-function forcedOutside(c,dpi,sourceLeft,aimPoint){
- // Erro automático: sempre depois da linha de fundo adversária, dentro da faixa externa de 3 m.
- return {x:sourceLeft?c.max.x+dpi:c.min.x-dpi,
-         y:clamp(aimPoint.y,c.min.y+dpi/2,c.max.y-dpi/2)};
+function forcedOutside(c,dpi,sourceTeam,aimPoint){
+ // Erro automático: bola sai pelo fundo do território adversário, sem presumir tamanho.
+ const receiving=courtRect(c,opposite(sourceTeam)),layout=courtLayout(c);
+ const axis=layout.axis,other=layout.cross;
+ const receivingCenter=rectCenter(receiving),aFirst=layout.aFirst;
+ const receivingFirst=sourceTeam==="enemies"?aFirst:!aFirst;
+ const p={...receivingCenter};
+ p[axis]=receivingFirst?receiving.min[axis]-dpi:receiving.max[axis]+dpi;
+ p[other]=clamp(aimPoint?.[other]??receivingCenter[other],receiving.min[other]+dpi/2,receiving.max[other]-dpi/2);
+ return p;
 }
-// A versão 6 exige os quatro limites reais, para não aceitar uma
-// calibração antiga de 12×6 casas por engano.
-const isCourt=c=>Boolean(c && c.version===COURT_CALIBRATION_VERSION &&
- [c.min?.x,c.min?.y,c.max?.x,c.max?.y,c.midX,
-  c.outerMin?.x,c.outerMin?.y,c.outerMax?.x,c.outerMax?.y].every(Number.isFinite) &&
- c.outerMin.x<c.min.x && c.min.x<c.midX && c.midX<c.max.x && c.max.x<c.outerMax.x &&
- c.outerMin.y<c.min.y && c.min.y<c.max.y && c.max.y<c.outerMax.y);
-const allySide=c=>c?.allySide==="RIGHT"?"RIGHT":"LEFT";
+const isCourt=c=>Boolean(c&&c.version===COURT_CALIBRATION_VERSION&&
+ rectValid(c.areas?.outer)&&rectValid(c.areas?.a)&&rectValid(c.areas?.b)&&
+ rectContains(c.areas.outer,c.areas.a)&&rectContains(c.areas.outer,c.areas.b)&&courtLayout(c));
+const allySide=c=>courtLayout(c)?.aFirst?"LEFT":"RIGHT";
 function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
  // Fichas concluídas na v0.6 com os 7 pontos-base e nível 1 ganham a nova etapa,
  // sem alterar fichas já evoluídas ou fichas NPC.
@@ -157,13 +202,10 @@ function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
 function mergePatch(a,b){return {...a,...b,
  attributes:{...(a.attributes||{}),...(b.attributes||{})},
  creationBonus:{...(a.creationBonus||{}),...(b.creationBonus||{})}};}
-// As bordas externas são armazenadas explicitamente na calibração.
-// A mira e a saída da bola usam essas bordas, nunca os limites da régua.
-function exterior(c,dpi){
- if(isCourt(c))return {min:{...c.outerMin},max:{...c.outerMax}};
- return {min:{x:c.min.x-2*dpi,y:c.min.y-2*dpi},max:{x:c.max.x+2*dpi,y:c.max.y+2*dpi}};
-}
-function inside(p,rect,eps=0){return p.x>=rect.min.x-eps && p.x<=rect.max.x+eps && p.y>=rect.min.y-eps && p.y<=rect.max.y+eps;}
+// Fora da quadra é tudo que NÃO está dentro dos territórios A/B.
+// A área total, também escolhida pelo mestre, limita a mira normal dos saques.
+function exterior(c){return c.areas.outer;}
+function inside(p,rect,eps=0){return Boolean(rect&&p.x>=rect.min.x-eps&&p.x<=rect.max.x+eps&&p.y>=rect.min.y-eps&&p.y<=rect.max.y+eps);}
 function fourCells(cross,dpi){return[
  {x:cross.x-dpi/2,y:cross.y-dpi/2}, {x:cross.x+dpi/2,y:cross.y-dpi/2},
  {x:cross.x-dpi/2,y:cross.y+dpi/2}, {x:cross.x+dpi/2,y:cross.y+dpi/2}
@@ -183,24 +225,25 @@ function serveCells(type,cross,dpi){
  }
  return coords;
 }
-function aimAt(cross,dpi,c,sourceX,type="underhand"){
+function aimAt(cross,dpi,c,sourcePosition,type="underhand"){
  const cells=serveCells(type,cross,dpi);
  if(!SERVE_TYPES[type])return{valid:false,reason:"Tipo de saque inválido.",cells};
- if(!isCourt(c)||!Number.isFinite(sourceX))return{valid:false,reason:"Calibre a quadra e selecione o sacador.",cells};
- const ext=exterior(c,dpi),epsilon=dpi*.001,sourceLeft=sourceX<c.midX;
- const candidatesInside=cells.map(p=>inside(p,c,epsilon));
- if(Math.abs(sourceX-c.midX)<epsilon)return{valid:false,reason:"Sacador na rede.",cells,inside:candidatesInside};
- if(!cells.every(p=>inside(p,ext,epsilon)))return{valid:false,reason:"A mira ultrapassa o limite externo da quadra.",cells,inside:candidatesInside};
- if(!cells.every(p=>sourceLeft?p.x>c.midX+epsilon:p.x<c.midX-epsilon))
-   return{valid:false,reason:"Toda a área do saque deve estar do lado adversário.",cells,inside:candidatesInside};
- return{valid:true,cells,inside:candidatesInside};
+ if(!isCourt(c)||!sourcePosition)return{valid:false,reason:"Marque área total, Time A e Time B; selecione o sacador.",cells};
+ const sourceTeam=teamOfPosition(sourcePosition,c),targetTeam=opposite(sourceTeam),target=courtRect(c,targetTeam);
+ const layout=courtLayout(c),eps=dpi*.001;
+ const candidatesInside=cells.map(p=>inside(p,target,eps));
+ if(!cells.every(p=>inside(p,exterior(c),eps)))return{valid:false,reason:"A mira ultrapassa a ÁREA TOTAL marcada pelo mestre.",cells,inside:candidatesInside};
+ const receiverIsFirst=targetTeam==="allies"?layout.aFirst:!layout.aFirst;
+ if(!cells.every(p=>receiverIsFirst?p[layout.axis]<layout.net-eps:p[layout.axis]>layout.net+eps))
+   return{valid:false,reason:"Toda a área do saque deve ficar no lado adversário da rede.",cells,inside:candidatesInside};
+ return{valid:true,cells,inside:candidatesInside,sourceTeam,targetTeam};
 }
 // Retângulos de aviso para a mira do Viagem: no máximo 4 faixas coloridas.
 // Assim não precisamos atualizar 49 objetos locais em cada movimento do mouse.
-function outsideBands(box,c){
+function outsideBands(box,rect){
  const x0=box.x,x1=box.x+box.w,y0=box.y,y1=box.y+box.h;
- const a=clamp(c.min.x,x0,x1),b=clamp(c.max.x,x0,x1);
- const top=clamp(c.min.y,y0,y1),bottom=clamp(c.max.y,y0,y1);
+ const a=clamp(rect.min.x,x0,x1),b=clamp(rect.max.x,x0,x1);
+ const top=clamp(rect.min.y,y0,y1),bottom=clamp(rect.max.y,y0,y1);
  const rects=[
    {x:x0,y:y0,w:Math.max(0,a-x0),h:box.h},
    {x:b,y:y0,w:Math.max(0,x1-b),h:box.h},
@@ -327,7 +370,8 @@ async function startBackground(){
  let firstCorner=null,previewIds=[],previewJob=null,previewKey="",previewType=null,active=false,executing=false,dpi=0,court=null;
  let pointerServeMeta=null;
  let myPlayerId=await OBR.player.getId();
- let calibrationPreviewIds=[],calibrationPreviewJob=null,calibrationPreviewKey="",calibrationNonce=null;
+ let calibrationPreviewIds=[],calibrationPreviewJob=null,calibrationPreviewKey="",calibrationNonce=null,calibrationTask="outer";
+ let zoneIds=[],zoneJob=Promise.resolve(),zoneSerial=0;
  let lastSelection=null,opening=false,selectionSerial=0,pendingPoint=null,pendingMeta=null,painting=false;
  async function openLeftSheet(){
    if(opening)return;
@@ -351,7 +395,7 @@ async function startBackground(){
  OBR.player.onChange(p=>{void openSelection(p.selection).catch(console.warn);});
  OBR.scene.onReadyChange(ready=>{
    if(ready){lastSelection=null;void OBR.player.getSelection().then(openSelection).catch(console.warn);}
-   else{court=null;firstCorner=null;dpi=0;void removePreview();void clearCalibrationPreview();}
+   else{court=null;firstCorner=null;dpi=0;void removePreview();void clearCalibrationPreview();void showZones(null);}
  });
  await OBR.contextMenu.create({id:ID+"/abrir-ficha",icons:[{icon:ICON,label:"Abrir ficha Haikyuu!!",filter:{min:1,max:1,every:[{key:"layer",value:"CHARACTER"}]}}],
    async onClick(ctx){await OBR.player.select([ctx.items[0].id],true);await openLeftSheet();}});
@@ -390,47 +434,112 @@ async function startBackground(){
    })();
    try{await previewJob;}finally{previewJob=null;}
  }
- // Prévia provisória no mapa depois do primeiro canto externo:
- // amarelo = 27×16,5 m, verde = 21×10,5 m. Não cria itens permanentes.
+ // A única fonte dos limites é a marcação manual do mestre.
  async function clearCalibrationPreview(){
    calibrationPreviewKey="";
-   if(calibrationPreviewJob)try{await calibrationPreviewJob;}catch(e){console.warn("Calibração",e);}
+   if(calibrationPreviewJob)try{await calibrationPreviewJob;}catch(e){console.warn(e);}
    const ids=calibrationPreviewIds;calibrationPreviewIds=[];
-   if(ids.length)try{await OBR.scene.local.deleteItems(ids);}catch(e){console.warn("Calibração",e);}
+   if(ids.length)await OBR.scene.local.deleteItems(ids).catch(console.warn);
  }
- async function previewCalibration(point){
-   if(!firstCorner || !point)return;
-   const size=await OBR.scene.grid.getDpi();
-   const p=await OBR.scene.grid.snapPosition(point,1,true,false);
-   const x=firstCorner.x+(p.x<firstCorner.x?-COURT_CELLS.outerX*size:0);
-   const y=firstCorner.y+(p.y<firstCorner.y?-COURT_CELLS.outerY*size:0);
-   const key=`${x}/${y}/${size}`;
-   if(key===calibrationPreviewKey&&calibrationPreviewIds.length)return;
-   if(!calibrationPreviewIds.length){
-     if(calibrationPreviewJob)await calibrationPreviewJob;
-     else {
-       const border=(name,w,h,color,opacity)=>buildShape().shapeType("RECTANGLE")
-         .name(name).position({x:0,y:0}).width(w).height(h).layer("DRAWING")
-         .disableHit(true).fillColor(color).fillOpacity(opacity)
-         .strokeColor(color).strokeWidth(3).strokeOpacity(.9).build();
-       calibrationPreviewJob=(async()=>{
-         const shapes=[
-           border("🏐 Prévia área externa — 27 × 16,5 m",COURT_CELLS.outerX*size,COURT_CELLS.outerY*size,"#facc15",.055),
-           border("🏐 Prévia quadra verde — 21 × 10,5 m",COURT_CELLS.insideX*size,COURT_CELLS.insideY*size,"#4ade80",.075)
-         ];
-         await OBR.scene.local.addItems(shapes);
-         calibrationPreviewIds=shapes.map(s=>s.id);
-       })();
-       try{await calibrationPreviewJob;}finally{calibrationPreviewJob=null;}
+ function rectBetween(a,b){return{min:{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y)},
+   max:{x:Math.max(a.x,b.x),y:Math.max(a.y,b.y)}};}
+ function rectShape(r,label,color,opacity=.055,strokeWidth=3){
+   return buildShape().shapeType("RECTANGLE").name(label).position({...r.min})
+     .width(r.max.x-r.min.x).height(r.max.y-r.min.y).layer("DRAWING")
+     .disableHit(true).fillColor(color).fillOpacity(opacity)
+     .strokeColor(color).strokeWidth(strokeWidth).strokeOpacity(.82).build();
+ }
+ function lineRect(c,task,coordinate,size){
+   const team=task==="lineA"?"a":"b",r=c.areas[team],axis=courtLayout(c).axis;
+   const width=Math.max(2,size*.045);
+   return axis==="x"?{min:{x:coordinate-width/2,y:r.min.y},max:{x:coordinate+width/2,y:r.max.y}}:
+     {min:{x:r.min.x,y:coordinate-width/2},max:{x:r.max.x,y:coordinate+width/2}};
+ }
+ async function previewCalibration(point,task){
+   if(!point||!CAL_TASKS[task])return;
+   const size=await OBR.scene.grid.getDpi(),p=await OBR.scene.grid.snapPosition(point,1,true,false);
+   if(task.startsWith("line")&&!isCourt(court))return;
+   if(!task.startsWith("line")&&!firstCorner)return;
+   const r=task.startsWith("line")?lineRect(court,task,p[courtLayout(court).axis],size):rectBetween(firstCorner,p);
+   if(!rectValid(r)){await clearCalibrationPreview();return;}
+   const key=`${task}|${r.min.x}|${r.min.y}|${r.max.x}|${r.max.y}`;
+   if(key===calibrationPreviewKey)return;
+   calibrationPreviewKey=key;
+   // Atualizações seriadas evitam duplicatas durante o movimento do ponteiro.
+   const old=calibrationPreviewJob;
+   calibrationPreviewJob=(async()=>{
+     if(old)await old.catch(()=>{});
+     if(calibrationPreviewIds.length){await OBR.scene.local.deleteItems(calibrationPreviewIds).catch(console.warn);calibrationPreviewIds=[];}
+     const item=rectShape(r,`Prévia: ${CAL_TASKS[task].label}`,CAL_TASKS[task].color,.17);
+     await OBR.scene.local.addItems([item]);calibrationPreviewIds=[item.id];
+   })();
+   await calibrationPreviewJob;
+ }
+ function outsideTiles(c){
+   const outer=c?.areas?.outer;
+   if(!rectValid(outer))return [];
+   const parts=[c.areas?.a,c.areas?.b].filter(rectValid);
+   const xs=[outer.min.x,outer.max.x],ys=[outer.min.y,outer.max.y];
+   for(const r of parts){xs.push(r.min.x,r.max.x);ys.push(r.min.y,r.max.y);}
+   const uniq=a=>[...new Set(a)].sort((x,y)=>x-y);
+   const xx=uniq(xs),yy=uniq(ys),tiles=[];
+   for(let i=0;i<xx.length-1;i++)for(let j=0;j<yy.length-1;j++){
+     const mid={x:(xx[i]+xx[i+1])/2,y:(yy[j]+yy[j+1])/2};
+     if(!parts.some(r=>inside(mid,r))){
+       const rect={min:{x:xx[i],y:yy[j]},max:{x:xx[i+1],y:yy[j+1]}};
+       if(rectValid(rect))tiles.push(rect);
      }
    }
-   if(!firstCorner || calibrationPreviewIds.length!==2)return;
-   calibrationPreviewKey=key;
-   const loc=[{x,y},{x:x+COURT_CELLS.margin*size,y:y+COURT_CELLS.margin*size}];
-   const order=new Map(calibrationPreviewIds.map((id,i)=>[id,i]));
-   await OBR.scene.local.updateItems(calibrationPreviewIds,items=>{
-     for(const item of items){const i=order.get(item.id);if(i!==undefined)item.position=loc[i];}
-   });
+   return tiles;
+ }
+ function fillRect(rect,name,color,opacity){
+   return buildShape().shapeType("RECTANGLE").name(name).position({...rect.min})
+     .width(rect.max.x-rect.min.x).height(rect.max.y-rect.min.y).layer("DRAWING")
+     .disableHit(true).fillColor(color).fillOpacity(opacity)
+     .strokeColor(color).strokeWidth(0).strokeOpacity(0).build();
+ }
+ function splitCourt(r,axis,cut){
+   if(!Number.isFinite(cut)||cut<=r.min[axis]||cut>=r.max[axis])return[r];
+   const first={min:{...r.min},max:{...r.max}},second={min:{...r.min},max:{...r.max}};
+   first.max[axis]=cut;second.min[axis]=cut;
+   return[first,second];
+ }
+ async function showZones(next){
+   const serial=++zoneSerial;
+   const prev=zoneJob;
+   zoneJob=(async()=>{
+     await prev.catch(()=>{});
+     const ids=zoneIds;zoneIds=[];
+     if(ids.length)await OBR.scene.local.deleteItems(ids).catch(console.warn);
+     if(serial!==zoneSerial||!next||next.showZones===false)return;
+     const shapes=[],a=next.areas?.a,b=next.areas?.b,outer=next.areas?.outer;
+     for(const r of outsideTiles(next))shapes.push(fillRect(r,"FORA da quadra","#ef4444",.14));
+     if(rectValid(outer))shapes.push(rectShape(outer,"Limite externo / Fora", "#ef4444",.015,4));
+     const layout=isCourt(next)?courtLayout(next):null;
+     for(const [r,key,name,colors] of [[a,"a","A",["#7dd3fc","#2563eb"]],[b,"b","B",["#86efac","#15803d"]]]){
+       if(!rectValid(r))continue;
+       if(!layout||!Number.isFinite(next.lines?.[key])){
+         shapes.push(rectShape(r,`TIME ${name} — quadra válida`,colors[0],.12,4));continue;
+       }
+       const [lower,higher]=splitCourt(r,layout.axis,next.lines[key]);
+       const frontAtHigh=key==="a"?layout.aFirst:!layout.aFirst;
+       shapes.push(fillRect(lower,`TIME ${name} — ${frontAtHigh?"FUNDO":"FRENTE"}`,frontAtHigh?colors[1]:colors[0],.17));
+       if(higher)shapes.push(fillRect(higher,`TIME ${name} — ${frontAtHigh?"FRENTE":"FUNDO"}`,frontAtHigh?colors[0]:colors[1],.17));
+       shapes.push(rectShape(r,`TIME ${name} — área válida`,colors[0],0,4));
+     }
+     if(layout){
+       const size=next.gridDpi||await OBR.scene.grid.getDpi();
+       for(const [task,name] of [["lineA","Linha 3 m — A"],["lineB","Linha 3 m — B"]]){
+         const coord=next.lines?.[task==="lineA"?"a":"b"];
+         if(Number.isFinite(coord))shapes.push(rectShape(lineRect(next,task,coord,size),name,"#fbbf24",.85,2));
+       }
+     }
+     if(!shapes.length||serial!==zoneSerial)return;
+     await OBR.scene.local.addItems(shapes);
+     if(serial!==zoneSerial){await OBR.scene.local.deleteItems(shapes.map(i=>i.id)).catch(console.warn);return;}
+     zoneIds=shapes.map(i=>i.id);
+   })();
+   await zoneJob.catch(console.warn);
  }
  async function getAim(point,metadata){
    if(!dpi)dpi=await OBR.scene.grid.getDpi();
@@ -441,8 +550,8 @@ async function startBackground(){
    const [token]=await OBR.scene.items.getItems([sid]);
    if(!isCharacter(token))return{cross,aim:{valid:false,reason:"Sacador não encontrado."}};
    const bounds=await OBR.scene.items.getItemBounds([sid]);
-   const sourceX=bounds?.center?.x??token.position.x;
-   return{cross,aim:aimAt(cross,dpi,court,sourceX,metadata?.serveType)};
+   const sourcePosition=bounds?.center||token.position;
+   return{cross,aim:aimAt(cross,dpi,court,sourcePosition,metadata?.serveType)};
  }
  async function paint(point,metadata){
    if(!active||executing||!point)return;
@@ -460,7 +569,7 @@ async function startBackground(){
      const xs=aim.cells.map(p=>p.x),ys=aim.cells.map(p=>p.y);
      const x=Math.min(...xs)-dpi/2,y=Math.min(...ys)-dpi/2;
      const block={x,y,w:7*dpi,h:7*dpi};
-     const zones=isCourt(court)&&aim.valid?outsideBands(block,court):[];
+     const zones=isCourt(court)&&aim.valid?outsideBands(block,courtRect(court,aim.targetTeam)):[];
      await OBR.scene.local.updateItems(previewIds,draft=>{
        for(const item of draft){const i=lookup.get(item.id);
          if(i===0){item.position={x,y};item.style.fillColor=aim.valid?"#22d3ee":"#fb7185";item.style.strokeColor=aim.valid?"#22d3ee":"#fb7185";}
@@ -516,7 +625,10 @@ async function startBackground(){
      if(!SERVE_TYPES[meta?.serveType]||!meta?.serverId)throw Error("Prepare um Saque na ficha antes de mirar.");
      if(meta?.rollConfirmed!==true||!Number.isInteger(meta?.natural)||meta.natural<1||meta.natural>20)
        throw Error("Aguarde o resultado do D20 natural no Dice+ antes de confirmar o saque.");
-     const {aim}=await getAim(point,meta);if(!aim.valid)throw Error(aim.reason);
+     const naturalFail=meta.natural<=SERVE_TYPES[meta.serveType].fail;
+     const {aim}=await getAim(point,meta);
+     if(!isCourt(court))throw Error("O mestre precisa marcar a área total e as quadras A/B.");
+     if(!naturalFail&&!aim.valid)throw Error(aim.reason);
      const balls=await OBR.scene.items.getItems(isBall);
      if(balls.length!==1)throw Error("O mestre precisa definir exatamente uma bola em Montarias.");
      if(balls[0].locked)throw Error("Desbloqueie a bola para movimentá-la.");
@@ -528,20 +640,19 @@ async function startBackground(){
        const [server]=await OBR.scene.items.getItems([meta.serverId]);
        if(!isCharacter(server))throw Error("Sacador não encontrado.");
        const serverBounds=await OBR.scene.items.getItemBounds([meta.serverId]);
-       const serverX=serverBounds?.center?.x??server.position.x;
-       const sourceTeam=teamOfX(serverX,court);
-       const naturalFail=meta.natural<=t.fail;
-       const chosen=naturalFail?forcedOutside(court,dpi,serverX<court.midX,point):pickCell(aim.cells);
-       const landedInside=!naturalFail&&inside(chosen,court,dpi*.001);
+       const sourcePosition=serverBounds?.center||server.position;
+       const sourceTeam=teamOfPosition(sourcePosition,court);
+       const recipientTeam=opposite(sourceTeam);
+       const chosen=naturalFail?forcedOutside(court,dpi,sourceTeam,point):pickCell(aim.cells);
+       const landedInside=!naturalFail&&inside(chosen,courtRect(court,recipientTeam),dpi*.001);
        await removePreview();await animate(balls[0],chosen);
        // O erro natural prevalece sobre quaisquer atributos e modificadores.
        const previous=(await OBR.scene.getMetadata());
        const score=cleanScore(previous[SCORE]);
-       const recipientTeam=opposite(sourceTeam);
        if(!landedInside)score[recipientTeam]++;
        const serveResult={type:meta.serveType,natural:meta.natural,total:meta.total,
          serveId:meta.rollId||"",serverId:meta.serverId,sourceTeam,recipientTeam,
-         landing:chosen,inside:landedInside,ended:!landedInside,awaitingReception:landedInside,
+         landing:chosen,landingZone:courtZone(chosen,court),inside:landedInside,ended:!landedInside,awaitingReception:landedInside,
          receptionPending:false,timestamp:Date.now()};
         const serverName=sheetOf(server).name;
         const fullRally={...serveResult,ballId:balls[0].id,serverName,
@@ -551,8 +662,8 @@ async function startBackground(){
           for(const item of draft)item.metadata[BALL_STATE]=fullRally;
         });
         await OBR.scene.setMetadata({[SCORE]:score,[RALLY]:fullRally});
-       if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
-       else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
+       if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"TIME A":"TIME B"}.`);
+       else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"TIME A":"TIME B"}.`);
        else await notify(`🏐 ${t.name}: DENTRO! Recepção: ${t.receive}.`);
        // A bola já chegou: o modo fica livre para iniciar a próxima tentativa.
        await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""});
@@ -591,10 +702,10 @@ async function startBackground(){
    const [token]=await OBR.scene.items.getItems([data.serverId]);
    if(!isCharacter(token))return;
    const bounds=await OBR.scene.items.getItemBounds([data.serverId]);
-   const sourceX=bounds?.center?.x??token.position.x;
+   const sourcePosition=bounds?.center||token.position;
    if(!dpi)dpi=await OBR.scene.grid.getDpi();
-   // Centro da metade oposta, para manter a mira virtual sempre dentro da faixa válida.
-   const point={x:court.midX+(sourceX<court.midX?3:-4)*dpi,y:court.min.y+3*dpi};
+   const receiving=courtRect(court,opposite(teamOfPosition(sourcePosition,court)));
+   const point=rectCenter(receiving);
    await doServe(point,meta);
  })().catch(e=>{console.error("Haikyuu erro automático",e);void notify(`Erro automático: ${e.message}`,"ERROR");});});
  // O modo da ferramenta oficial continua como alternativa compatível.
@@ -634,52 +745,67 @@ async function startBackground(){
    onToolClick(ctx,e){void doServe(e.pointerPosition,ctx.metadata);return false;},
    onToolDragCancel(){void removePreview();}
  });
- await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Calibrar contorno externo (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
+ await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Definir áreas / linhas (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
    onActivate(){firstCorner=null;calibrationNonce=null;active=false;void removePreview();void clearCalibrationPreview();},
    onDeactivate(){firstCorner=null;void clearCalibrationPreview();},
-   onToolMove(_ctx,e){if(firstCorner)void previewCalibration(e.pointerPosition).catch(console.warn);},
+   onToolMove(ctx,e){
+     const task=ctx.metadata?.calibrationTask||calibrationTask;
+     if((firstCorner||task.startsWith("line"))&&CAL_TASKS[task])void previewCalibration(e.pointerPosition,task).catch(console.warn);
+   },
    onToolClick(ctx,e){void(async()=>{
      try{
-       if((await OBR.player.getRole())!=="GM")throw Error("Somente o mestre pode calibrar.");
-       if((await OBR.scene.grid.getType())!=="SQUARE")throw Error("Use a grade quadrada.");
-       // Nova tentativa sempre limpa o primeiro canto anterior, mesmo se o modo já estiver ativo.
+       if(await OBR.player.getRole()!=="GM")throw Error("Somente o mestre pode marcar áreas.");
+       if(await OBR.scene.grid.getType()!=="SQUARE")throw Error("Use uma grade quadrada.");
+       const task=ctx.metadata?.calibrationTask||"outer";
+       if(!CAL_TASKS[task])throw Error("Ferramenta de marcação desconhecida.");
        if(ctx.metadata?.calibrationNonce!==calibrationNonce){
-         firstCorner=null;calibrationNonce=ctx.metadata?.calibrationNonce;await clearCalibrationPreview();
+         firstCorner=null;calibrationNonce=ctx.metadata?.calibrationNonce;calibrationTask=task;await clearCalibrationPreview();
        }
        const p=await OBR.scene.grid.snapPosition(e.pointerPosition,1,true,false);
-       if(!firstCorner){
-         firstCorner=p;
-         await notify("📍 1º canto EXTERNO marcado. Veja a prévia amarela/verde e clique no canto oposto da borda branca externa.");
-         return;
+       const size=await OBR.scene.grid.getDpi();
+       const prev=(await OBR.scene.getMetadata())[COURT];
+       const current=prev?.version===COURT_CALIBRATION_VERSION?prev:{version:COURT_CALIBRATION_VERSION,areas:{},lines:{},showZones:true};
+       const next={...current,areas:{...(current.areas||{})},lines:{...(current.lines||{})},gridDpi:size};
+       if(task.startsWith("line")){
+         if(!isCourt(next))throw Error("Primeiro marque área total, Time A e Time B.");
+         const key=task==="lineA"?"a":"b",axis=courtLayout(next).axis,r=next.areas[key];
+         if(p[axis]<=r.min[axis]||p[axis]>=r.max[axis])throw Error("Clique dentro da quadra do time para marcar sua linha de 3 m.");
+         next.lines[key]=p[axis];
+       }else{
+         if(!firstCorner){
+           firstCorner=p;
+           await notify(`📍 1º canto de ${CAL_TASKS[task].label} marcado. Clique no canto oposto. Nenhuma medida fixa será imposta.`);
+           return;
+         }
+         const rect=rectBetween(firstCorner,p);
+         if((rect.max.x-rect.min.x)<size*.75||(rect.max.y-rect.min.y)<size*.75)
+           throw Error("A área precisa ter pelo menos uma casa de largura e altura.");
+         if(task==="outer"){
+           next.areas={outer:rect};next.lines={};
+         }else{
+           if(!rectValid(next.areas.outer))throw Error("Primeiro delimite a área total (incluindo fora). ");
+           if(!rectContains(next.areas.outer,rect))throw Error("A quadra do time deve ficar dentro da área total.");
+           next.areas[task]=rect;delete next.lines[task];
+           if(rectValid(next.areas.a)&&rectValid(next.areas.b)&&!courtLayout(next))
+             throw Error("As quadras A/B não podem se sobrepor e precisam estar lado a lado (rede entre elas). Marque novamente.");
+         }
        }
-       const a=firstCorner,size=await OBR.scene.grid.getDpi();
-       const outerMin={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y)};
-       const outerMax={x:Math.max(a.x,p.x),y:Math.max(a.y,p.y)};
-       const nx=(outerMax.x-outerMin.x)/size,ny=(outerMax.y-outerMin.y)/size;
-       if(Math.abs(nx-COURT_CELLS.outerX)>.25||Math.abs(ny-COURT_CELLS.outerY)>.25){
-         await notify(`⚠️ Você marcou ${nx.toFixed(1)}×${ny.toFixed(1)} casas. A borda branca externa deve medir 18×11 casas (27×16,5 m). O 1º canto foi mantido; tente novamente o 2º canto.`,"ERROR");
-         return;
-       }
-       const min={x:outerMin.x+COURT_CELLS.margin*size,y:outerMin.y+COURT_CELLS.margin*size};
-       const max={x:outerMax.x-COURT_CELLS.margin*size,y:outerMax.y-COURT_CELLS.margin*size};
-       const previous=(await OBR.scene.getMetadata())[COURT];
-       const next={outerMin,outerMax,min,max,midX:(min.x+max.x)/2,
-         allySide:allySide(previous),version:COURT_CALIBRATION_VERSION,gridDpi:size};
-       if(!isCourt(next))throw Error("Falha ao verificar os limites calibrados.");
-       court=next;
-       await OBR.scene.setMetadata({[COURT]:next});
+       court=next;await OBR.scene.setMetadata({[COURT]:next});await showZones(next);
        firstCorner=null;await clearCalibrationPreview();
-       await notify("✅ Quadra calibrada! Área verde 14×7 casas (21×10,5 m), área externa 18×11 (27×16,5 m), margem 3 m.");
+       await notify(`✅ ${CAL_TASKS[task].label} salva! ${isCourt(next)?"A quadra está pronta para saques.":"Continue a marcar as áreas restantes."}`);
        await OBR.tool.activateMode(TOOL,SERVE);
-     }catch(err){await notify(`Quadra: ${err.message}`,"ERROR");}
+     }catch(err){await notify(`Área: ${err.message}`,"ERROR");}
    })().catch(console.error);return false;}
  });
- OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;});
+ OBR.scene.onMetadataChange(meta=>{const next=meta[COURT]||null;
+   if(JSON.stringify(next)!==JSON.stringify(court)){court=next;void showZones(court);}
+ });
  OBR.scene.grid.onChange(()=>{dpi=0;void removePreview();});
  OBR.tool.onToolChange(t=>{if(t!==TOOL&&t!==POINTER_TOOL){active=false;firstCorner=null;void removePreview();void clearCalibrationPreview();}});
  OBR.tool.onToolModeChange(m=>{if(m!==SERVE&&m!==POINTER_SERVE){active=false;void removePreview();}if(m!==CALIBRATE){firstCorner=null;void clearCalibrationPreview();}});
  if(await OBR.scene.isReady()){
    court=(await OBR.scene.getMetadata())[COURT]||null;
+   await showZones(court);
    await openSelection(await OBR.player.getSelection());
  }
 }
@@ -742,7 +868,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.13</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.14</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div>
  ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
  function choose(){return `<section class="card"><p class="kicker">Token selecionado</p><h2>${escapeHTML(sheetOf(selected).name)}</h2>
@@ -793,7 +919,7 @@ async function startPanel(){
      <span>🏐 ${t.name}<small>${t.area}<br>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
    <p class="small">Cada saque tem uma área própria: Baixo (4 destinos), Cima (6), Flutuante (+ com 8) e Viagem (7×7 com 49). Azul = dentro; laranja = fora; vermelho = mira inválida.</p>
    <p class="small">${serveLock?.until>Date.now()?"⏳ Bola em movimento: o próximo saque será liberado ao terminar.":"✅ Pode fazer outro saque após a bola parar. Se pular a recepção, o rally anterior será encerrado sem ponto extra."}</p>
-   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre deve calibrar a quadra"}. Ao clicar no saque, tentaremos ativar a mira na ferramenta de seleção automaticamente. Se o Owlbear estiver usando outra ferramenta, use 🏐 como alternativa.</p></section>`;}
+   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre precisa marcar Time A/B e área total"}. Ao clicar no saque, tentaremos ativar a mira na ferramenta de seleção automaticamente. Se o Owlbear estiver usando outra ferramenta, use 🏐 como alternativa.</p></section>`;}
  function receiveCard(){
    if(!isCharacter(selected)||!rally?.awaitingReception||!SERVE_TYPES[rally.type]||!isCourt(court))return "";
    const t=SERVE_TYPES[rally.type];
@@ -885,7 +1011,7 @@ async function startPanel(){
     if(!isCharacter(selected)||currentSheet().position!=="Levantador")throw Error("Selecione um atleta da posição Levantador.");
     const [token]=await OBR.scene.items.getItems([selectedId]);
     const bounds=await OBR.scene.items.getItemBounds([selectedId]);
-    if(teamOfX(bounds?.center?.x??token.position.x,court)!==current.recipientTeam)throw Error("O levantador deve ser da equipe receptora.");
+    if(teamOfPosition(bounds?.center||token.position,court)!==current.recipientTeam)throw Error("O levantador deve ser da equipe receptora.");
     if(current.timer?.status==="running"||current.timer?.status==="done")throw Error("O timer já está em andamento ou foi concluído.");
     const needsReach=QUALITY_RULES[current.quality].reach>0;
     await commitRally({...current,setterId:selectedId,setterName:currentSheet().name,
@@ -938,6 +1064,7 @@ async function startPanel(){
       <h2>${isBall(selected)?"🏐 Bola oficial":"Objeto selecionado"}</h2>
       <p class="small">${escapeHTML(selected?.name||"Objeto")}</p>
       <div class="stat"><span>Último saque</span><b>${escapeHTML(ballDescription(s))}</b></div>
+      <div class="stat"><span>Local da queda</span><b>${escapeHTML(s?.landingZone||"—")}</b></div>
       <div class="stat"><span>Dificuldade de recepção</span><strong style="font-size:24px">${s?.total??"—"}</strong></div>
       ${s?.reception?`<div class="stat"><span>Recepção</span><b>${escapeHTML(s.reception.receiverName||"Receptor")} · ${s.reception.total}</b></div>
         <div class="stat"><span>Qualidade</span><b>${s.quality==="Ace"?"Ace":"Passe "+escapeHTML(s.quality)}</b></div>`:""}
@@ -947,26 +1074,29 @@ async function startPanel(){
   }
  function gmPanel(){if(role!=="GM")return '<section class="card">Acesso restrito ao mestre.</section>';
  return `<section class="card"><p class="kicker">Ficha Mestre</p><h2>⚙️ Partida</h2>
- <div class="stat"><span>Quadra</span><b>${isCourt(court)?"Calibrada":"Pendente"}</b></div>
+ <div class="stat"><span>Quadra A/B</span><b>${isCourt(court)?"Marcada manualmente":"Pendente"}</b></div>
  <div class="stat"><span>Bolas oficiais</span><b>${items.filter(isBall).length}</b></div>
  <div class="stat"><span>NPCs</span><b>${items.filter(i=>isCharacter(i)&&sheetOf(i).kind==="npc").length}</b></div>
  <p class="small">Grade: ${escapeHTML(grid||"não definida")}. Referência do RPG: 1 casa = 1,5 m.</p></section>
   ${timerCard()}
-  <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Aliados<strong>${score.allies}</strong></div><div>Inimigos<strong>${score.enemies}</strong></div></div>
+  <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Time A<strong>${score.allies}</strong></div><div>Time B<strong>${score.enemies}</strong></div></div>
  <p class="small">${rally?.ended?(rally.quality==="Ace"?"Ace — ponto direto do sacador.":"Último rally encerrado: bola fora."):rally?.reception?`Passe ${rally.quality} registrado na bola. Próxima etapa: Levantamento.`:rally?.awaitingReception?"Rally aberto: aguardando recepção.":"Nenhuma recepção pendente."}</p>
  <button class="wide" data-act="reset-score">Zerar placar (Mestre)</button></section>
- <section class="card"><h2>🏐 Lados das equipes</h2><p class="small">Escolha o lado dos aliados. Os inimigos ficam automaticamente no lado oposto.</p>
- <label class="radio"><input type="radio" name="ally" value="LEFT" ${allySide(court)==="LEFT"?"checked":""}> Aliados à esquerda / Inimigos à direita</label>
- <label class="radio"><input type="radio" name="ally" value="RIGHT" ${allySide(court)==="RIGHT"?"checked":""}> Aliados à direita / Inimigos à esquerda</label>
- <p class="small">Configuração compartilhada para toda a sala, inclusive os saques dos NPCs.</p></section>
- <section class="card"><h2>📐 Calibrar quadra</h2>
- <p class="small"><b>Área verde:</b> 21 × 10,5 m (14 × 7 casas).<br>
- <b>Contorno externo:</b> 27 × 16,5 m (18 × 11 casas).<br>
- <b>Faixa vermelha:</b> 3 metros (2 casas) em cada direção.</p>
- <p class="small"><b>Mais fácil:</b> clique primeiro no canto superior esquerdo da <b>borda branca externa</b>, depois no canto inferior direito da mesma borda. A prévia amarela mostra o exterior; a verde mostra as linhas internas.</p>
- <p class="small">A régua das imagens mostra 25,5 × 15 m porque está posicionada aproximadamente meio quadrado para dentro das bordas; para calibrar, use a borda branca externa.</p>
- <p class="small">${isCourt(court)?"✅ Limites salvos para a sala. A mira e as bolas fora respeitam a faixa vermelha.":"⚠️ Calibração antiga ou ausente. Refaça usando o contorno externo."}</p>
- <button class="primary wide" data-act="calibrate">${isCourt(court)?"Recalibrar contorno externo":"Calibrar contorno externo"}</button></section>
+ <section class="card"><p class="kicker">Quadra · Controle do mestre</p><h2>📐 Definir áreas MANUALMENTE</h2>
+ <p class="small">Não há tamanho de quadra nem borda vermelha imposto pelo plugin. Você define as áreas no mapa, selecionando dois cantos de cada retângulo. 1 quadradinho do Owlbear = 1,5 m.</p>
+ <p class="small"><b>1.</b> Área total: limite externo em vermelho.<br><b>2.</b> Time A: área válida do A (azul).<br>
+ <b>3.</b> Time B: área válida do B (verde).<br><b>4.</b> Linha dos 3 m de cada time (amarela): 1 clique na posição desejada.</p>
+ <p class="small">FORA = qualquer lugar que não seja território A/B. Dentro das áreas dos times, a linha amarela separa <b>ATÉ a linha dos 3 m (frente)</b> e <b>DEPOIS da linha (fundo)</b>.</p>
+ ${[["outer","Área total / Fora"],["a","Time A — dentro"],["b","Time B — dentro"],["lineA","Linha dos 3 m — A"],["lineB","Linha dos 3 m — B"]].map(([key,title])=>{
+   const done=key==="lineA"?Number.isFinite(court?.lines?.a):key==="lineB"?Number.isFinite(court?.lines?.b):rectValid(court?.areas?.[key]);
+   const locked=(key!=="outer"&&!rectValid(court?.areas?.outer))||(key.startsWith("line")&&!isCourt(court));
+   return `<button class="wide" style="margin:4px 0;text-align:left" data-court-task="${key}" ${locked?"disabled":""}>${done?"✅":"⬜"} ${title} · ${key.startsWith("line")?"1 clique":"2 cantos"}</button>`;
+ }).join("")}
+ <p class="small">${isCourt(court)?"✅ Time A/B definidos. Você pode recalibrar qualquer área.":"⚠️ Marque primeiro a área total e os dois times."}</p>
+ ${selected?`<button class="wide" data-act="check-position">📍 Identificar região do token selecionado</button>`:""}
+ <button class="wide" data-act="toggle-zones">${court?.showZones===false?"👁 Exibir divisões no mapa":"🙈 Ocultar divisões no mapa"}</button>
+ <button class="wide" style="margin-top:8px" data-act="clear-court">🗑 Apagar marcações da quadra</button>
+ </section>
  ${isCharacter(selected)?`<section class="card"><h2>Classificar token</h2><div class="controls"><button data-act="type-player">👤 Registrar como Jogador</button><button data-act="type-npc">🎭 Registrar como NPC</button></div></section>`:""}
  ${selected?.layer==="MOUNT"?ballPanel():""}`;}
  function render(){let body="";
@@ -1062,7 +1192,7 @@ async function startPanel(){
    const t=SERVE_TYPES[type];
    if(!t)throw Error("Tipo de Saque inválido.");
    if(view==="jogador"&&!currentSheet().created)throw Error("Conclua a criação antes de sacar.");
-   if(!isCourt(court))throw Error("O mestre precisa calibrar a quadra.");
+   if(!isCourt(court))throw Error("O mestre precisa delimitar a área total e as quadras A/B.");
    if(items.filter(isBall).length!==1)throw Error("O mestre deve definir uma bola em Montarias.");
    if(!isCharacter(selected))throw Error("Selecione o sacador.");
    // O novo saque inicia um novo rally. Uma recepção pendente do saque anterior
@@ -1138,7 +1268,7 @@ async function startPanel(){
     const ballBounds=await OBR.scene.items.getItemBounds([balls[0].id]);
     const center=bounds?.center||item?.position,ballCenter=ballBounds?.center||balls[0].position;
     if(!center||!ballCenter)throw Error("Não foi possível localizar os tokens na grade.");
-    if(teamOfX(center.x,court)!==current.recipientTeam)throw Error("O recebedor deve ser da equipe que recebeu o saque.");
+    if(teamOfPosition(center,court)!==current.recipientTeam)throw Error("O recebedor deve ser da equipe que recebeu o saque.");
     const dpi=await OBR.scene.grid.getDpi();
     if(Math.abs(center.x-ballCenter.x)>dpi*1.02||Math.abs(center.y-ballCenter.y)>dpi*1.02)
       throw Error("A bola precisa estar a até 1,5 m do receptor (inclusive diagonais).");
@@ -1169,6 +1299,17 @@ async function startPanel(){
   }
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
    if(b.dataset.view){view=b.dataset.view;editingProfile=false;message="";render();return;}
+   if(b.dataset.courtTask){
+     try{
+       if(role!=="GM")throw Error("Somente o mestre marca áreas.");
+       const task=b.dataset.courtTask;
+       if(!CAL_TASKS[task])throw Error("Marcação inválida.");
+       await prepare(CALIBRATE,{serverId:"",serveType:"",calibrationTask:task,calibrationNonce:newId()});
+       status(task.startsWith("line")?`🎯 ${CAL_TASKS[task].label}: clique na posição da linha dentro da quadra.`:
+         `🎯 ${CAL_TASKS[task].label}: clique em DOIS cantos opostos da área. Não há medidas pré-definidas.`);
+     }catch(err){status(err.message,"error");}
+     return;
+   }
    if(busy)return;
    if(b.dataset.serve){
      busy=true;render();
@@ -1216,8 +1357,25 @@ async function startPanel(){
        case "type-npc":await saveSheet({kind:"npc"});status("Token registrado como NPC.");break;
        case "mark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,true);status("🏐 Bola oficial definida.");break;
        case "unmark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,false);status("Bola desmarcada.");break;
-       case "calibrate":if(role!=="GM")throw Error("Só o mestre calibra."); await prepare(CALIBRATE,{serverId:"",serveType:"",calibrationNonce:newId()});
-         status("Na ferramenta 🏐, marque o canto superior esquerdo e o canto inferior direito da BORDA BRANCA EXTERNA. A prévia mostrará o contorno amarelo (18×11 casas) e a área verde (14×7).");break;
+       case "check-position":{
+         if(role!=="GM"||!isCourt(court))throw Error("Primeiro marque as quadras do Time A e do Time B.");
+         if(!selectedId)throw Error("Selecione um token no mapa.");
+         const bounds=await OBR.scene.items.getItemBounds([selectedId]);
+         const center=bounds?.center||selected?.position;
+         if(!center)throw Error("Não encontrei a posição do token.");
+         status(`📍 ${selected?.name||"Token"}: ${courtZone(center,court)}`);break;
+       }
+       case "toggle-zones":{
+         if(role!=="GM")throw Error("Somente o mestre controla as áreas.");
+         const prev=(await OBR.scene.getMetadata())[COURT]||{version:COURT_CALIBRATION_VERSION,areas:{},lines:{}};
+         await OBR.scene.setMetadata({[COURT]:{...prev,showZones:prev.showZones===false}});
+         status("Exibição de zonas atualizada.");break;
+       }
+       case "clear-court":{
+         if(role!=="GM")throw Error("Somente o mestre controla as áreas.");
+         if(!confirm("Apagar TODAS as marcações da quadra? Os tokens, fichas, bola e placar serão preservados."))break;
+         await OBR.scene.setMetadata({[COURT]:null});status("Marcações da quadra apagadas. Refaça as áreas.");break;
+       }
         case "receive":await receiveServe();break;
         case "choose-setter":await chooseSetter();break;
         case "test-reach":await reachTest();break;
@@ -1270,15 +1428,6 @@ async function startPanel(){
  });
  app.addEventListener("change",async e=>{
    const input=e.target;
-   if(input instanceof HTMLInputElement&&input.name==="ally"){
-     try{
-       if(role!=="GM")throw Error("Apenas o mestre escolhe os lados.");
-       const meta=await OBR.scene.getMetadata(),current=meta[COURT]||{};
-       await OBR.scene.setMetadata({[COURT]:{...current,allySide:input.value==="RIGHT"?"RIGHT":"LEFT"}});
-       status(`✅ Aliados à ${input.value==="RIGHT"?"direita":"esquerda"}; inimigos no lado oposto.`);
-     }catch(err){status(err.message,"error");}
-     return;
-   }
    if(input instanceof HTMLInputElement||input instanceof HTMLSelectElement){
      if(input.dataset.profile||input.dataset.attr){handleProfile(input,true);await flush(selectedId);}
    }
@@ -1330,7 +1479,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.13</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.14</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
