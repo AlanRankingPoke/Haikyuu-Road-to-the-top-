@@ -1,9 +1,9 @@
 
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "manifest_version": 1,
-  "description": "Mira de saque ativada no modo da ferramenta atual; Dice+ identifica tipo de rolagem e nome do personagem. Mantém áreas manuais, passes e timer.",
+  "description": "Mira automatica, rolagens identificadas, quadra manual, passes, ficha da bola e timer.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
