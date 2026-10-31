@@ -1,9 +1,9 @@
 
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "manifest_version": 1,
-  "description": "Passe A/B/C/D/Ace, ficha da bola, timer com Play/Pause exclusivo do mestre e Levantamento Dice+.",
+  "description": "Mestre define todas as áreas: Fora, Time A, Time B, linhas dos 3 m, frente e fundo; saque, passe, bola e timer.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
