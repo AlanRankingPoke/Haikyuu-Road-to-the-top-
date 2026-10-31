@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.16.1",
+  "version": "0.18.0",
   "manifest_version": 1,
-  "description": "Mira automatica, rolagens identificadas, quadra manual, passes, ficha da bola e timer.",
+  "description": "Zonas ilustradas para Passe A/B/C/D; bola animada no fundo, avisos na ficha, distancia e timer.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
