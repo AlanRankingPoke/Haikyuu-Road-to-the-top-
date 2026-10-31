@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.8</title>
+<title>Haikyuu!! Road to the Top — 0.12</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -58,23 +58,30 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.9 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.13 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
-// A quadra interna é 12×6 células; externa é 16×10 células.
+// Para esta quadra, o contorno EXTERNO mede 18×11 células.
+// A área verde INTERNA mede 14×7 células; margem: 2 células em cada direção.
 // Cada célula representa 1,5 metro (configuração do nosso RPG).
 // ================================================================
 const ID="br.com.haikyuu.rtt"; // Mantém compatibilidade com fichas anteriores
 const SHEET=ID+"/sheet", BALL=ID+"/ball", COURT=ID+"/court", LOCK=ID+"/serve-lock";
 const RALLY=ID+"/rally", SCORE=ID+"/score";
-// Os tamanhos de mira dos outros três saques ainda serão definidos.
-// Até lá, todos usam a mira existente de 1,5m sem inventar medidas oficiais.
+// Cada área sorteia uniformemente UM dos centros de célula que a compõem.
+// Baixo conserva a mira original de 1,5 × 1,5 m sobre o cruzamento de 4 casas.
+// Cima: 2 × 3 casas; Flutuante: 2 × 3 + 2 laterais centrais;
+// Viagem: 7 × 7 casas, área móvel equivalente à metade verde de nossa quadra.
 const SERVE_TYPES={
- underhand:{name:"Saque por Baixo",mod:0,fail:1,receive:"Passe com Vantagem",receptionAttr:"Passe",advantage:"adv"},
- overhand:{name:"Saque por Cima",mod:0,fail:2,receive:"Passe normal",receptionAttr:"Passe",advantage:"normal"},
- float:{name:"Saque Flutuante",mod:-2,fail:3,receive:"Passe com Desvantagem",receptionAttr:"Passe",advantage:"dis"},
- jump:{name:"Saque Viagem",mod:-2,fail:3,receive:"Teste de Defesa",receptionAttr:"Defesa",advantage:"normal"}
+ underhand:{name:"Saque por Baixo",mod:0,fail:1,receive:"Passe com Vantagem",receptionAttr:"Passe",advantage:"adv",area:"Quadrado 1,5 × 1,5 m • 4 destinos",count:4},
+ overhand:{name:"Saque por Cima",mod:0,fail:2,receive:"Passe normal",receptionAttr:"Passe",advantage:"normal",area:"Retângulo vertical 2 × 3 casas • 6 destinos",count:6},
+ float:{name:"Saque Flutuante",mod:-2,fail:3,receive:"Passe com Desvantagem",receptionAttr:"Passe",advantage:"dis",area:"Cruz (+) com 8 casas • 8 destinos",count:8},
+ jump:{name:"Saque Viagem",mod:-2,fail:3,receive:"Teste de Defesa",receptionAttr:"Defesa",advantage:"normal",area:"Quadrado móvel 7 × 7 casas • 49 destinos",count:49}
 };
 const TOOL=ID+"/tool-saque", SERVE=ID+"/mode-saque", CALIBRATE=ID+"/mode-calibrar";
+// A mira pode usar a ferramenta nativa de seleção do Owlbear.
+// O SDK permite ativar modos, mas não disponibiliza seleção forçada da ferramenta principal.
+const POINTER_TOOL="rodeo.owlbear.tools/pointer", POINTER_SERVE=ID+"/mode-saque-selecao";
+const ARM_EVENT=ID+"/mira-preparada";
 const ICON=new URL("./Icon.png",import.meta.url).href;
 const ATTRS=["Ataque","Defesa","Passe","Salto","Saque","Levantamento","Bloqueio"];
 // Distribuição oficial da tabela do livro: 7 pontos iniciais em cada posição.
@@ -89,6 +96,10 @@ const POSITIONS=Object.keys(PRESETS);
 const INITIAL_BONUS_POINTS=3, INITIAL_ATTRIBUTE_CAP=5;
 const emptyBonuses=()=>Object.fromEntries(ATTRS.map(a=>[a,0]));
 const pointsSpent=s=>ATTRS.reduce((total,a)=>total+(s.creationBonus?.[a]||0),0);
+// Cada casa vale 1,5 m. Valores correspondem à borda branca da imagem,
+// não à régua posicionada meio quadrado para dentro.
+const COURT_CELLS=Object.freeze({outerX:18,outerY:11,insideX:14,insideY:7,margin:2});
+const COURT_CALIBRATION_VERSION=6;
 const PANEL_ID=ID+"/left-sheet";
 const background=new URLSearchParams(location.search).has("background");
 const app=document.querySelector("#app");
@@ -118,7 +129,13 @@ function forcedOutside(c,dpi,sourceLeft,aimPoint){
  return {x:sourceLeft?c.max.x+dpi:c.min.x-dpi,
          y:clamp(aimPoint.y,c.min.y+dpi/2,c.max.y-dpi/2)};
 }
-const isCourt=c=>c && [c.min?.x,c.min?.y,c.max?.x,c.max?.y,c.midX].every(Number.isFinite) && c.min.x<c.midX && c.midX<c.max.x && c.min.y<c.max.y;
+// A versão 6 exige os quatro limites reais, para não aceitar uma
+// calibração antiga de 12×6 casas por engano.
+const isCourt=c=>Boolean(c && c.version===COURT_CALIBRATION_VERSION &&
+ [c.min?.x,c.min?.y,c.max?.x,c.max?.y,c.midX,
+  c.outerMin?.x,c.outerMin?.y,c.outerMax?.x,c.outerMax?.y].every(Number.isFinite) &&
+ c.outerMin.x<c.min.x && c.min.x<c.midX && c.midX<c.max.x && c.max.x<c.outerMax.x &&
+ c.outerMin.y<c.min.y && c.min.y<c.max.y && c.max.y<c.outerMax.y);
 const allySide=c=>c?.allySide==="RIGHT"?"RIGHT":"LEFT";
 function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
  // Fichas concluídas na v0.6 com os 7 pontos-base e nível 1 ganham a nova etapa,
@@ -140,23 +157,89 @@ function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
 function mergePatch(a,b){return {...a,...b,
  attributes:{...(a.attributes||{}),...(b.attributes||{})},
  creationBonus:{...(a.creationBonus||{}),...(b.creationBonus||{})}};}
-// A calibração guarda as linhas internas; limites externos são calculados automaticamente.
-function exterior(c,dpi){return{min:{x:c.min.x-2*dpi,y:c.min.y-2*dpi},max:{x:c.max.x+2*dpi,y:c.max.y+2*dpi}};}
+// As bordas externas são armazenadas explicitamente na calibração.
+// A mira e a saída da bola usam essas bordas, nunca os limites da régua.
+function exterior(c,dpi){
+ if(isCourt(c))return {min:{...c.outerMin},max:{...c.outerMax}};
+ return {min:{x:c.min.x-2*dpi,y:c.min.y-2*dpi},max:{x:c.max.x+2*dpi,y:c.max.y+2*dpi}};
+}
 function inside(p,rect,eps=0){return p.x>=rect.min.x-eps && p.x<=rect.max.x+eps && p.y>=rect.min.y-eps && p.y<=rect.max.y+eps;}
 function fourCells(cross,dpi){return[
  {x:cross.x-dpi/2,y:cross.y-dpi/2}, {x:cross.x+dpi/2,y:cross.y-dpi/2},
  {x:cross.x-dpi/2,y:cross.y+dpi/2}, {x:cross.x+dpi/2,y:cross.y+dpi/2}
 ];}
-function aimAt(cross,dpi,c,sourceX){
- const cells=fourCells(cross,dpi);
+// Todos os centros estão alinhados às células de 1,5 m.
+// O âncora é o cruzamento mais próximo do cursor, como na mira antiga.
+// Para alturas ímpares (3/7), a área se estende meia casa para baixo do âncora.
+function serveCells(type,cross,dpi){
+ if(type==="underhand")return fourCells(cross,dpi);
+ const coords=[];
+ if(type==="overhand"||type==="float"){
+   for(const y of [-.5,.5,1.5])for(const x of [-.5,.5])coords.push({x:cross.x+x*dpi,y:cross.y+y*dpi});
+   if(type==="float")for(const x of [-1.5,1.5])coords.push({x:cross.x+x*dpi,y:cross.y+.5*dpi});
+ }else if(type==="jump"){
+   for(let row=0;row<7;row++)for(let col=0;col<7;col++)
+     coords.push({x:cross.x+(col-2.5)*dpi,y:cross.y+(row-2.5)*dpi});
+ }
+ return coords;
+}
+function aimAt(cross,dpi,c,sourceX,type="underhand"){
+ const cells=serveCells(type,cross,dpi);
+ if(!SERVE_TYPES[type])return{valid:false,reason:"Tipo de saque inválido.",cells};
  if(!isCourt(c)||!Number.isFinite(sourceX))return{valid:false,reason:"Calibre a quadra e selecione o sacador.",cells};
  const ext=exterior(c,dpi),epsilon=dpi*.001,sourceLeft=sourceX<c.midX;
- if(Math.abs(sourceX-c.midX)<epsilon)return{valid:false,reason:"Sacador na rede.",cells};
- if(!cells.every(p=>inside(p,ext,epsilon)))return{valid:false,reason:"A mira ultrapassa o limite externo de 3 metros.",cells};
- if(!cells.every(p=>sourceLeft?p.x>c.midX+epsilon:p.x<c.midX-epsilon))return{valid:false,reason:"Mire somente no lado adversário (ou fora dele).",cells};
- return{valid:true,cells,inside:cells.map(p=>inside(p,c,epsilon))};
+ const candidatesInside=cells.map(p=>inside(p,c,epsilon));
+ if(Math.abs(sourceX-c.midX)<epsilon)return{valid:false,reason:"Sacador na rede.",cells,inside:candidatesInside};
+ if(!cells.every(p=>inside(p,ext,epsilon)))return{valid:false,reason:"A mira ultrapassa o limite externo da quadra.",cells,inside:candidatesInside};
+ if(!cells.every(p=>sourceLeft?p.x>c.midX+epsilon:p.x<c.midX-epsilon))
+   return{valid:false,reason:"Toda a área do saque deve estar do lado adversário.",cells,inside:candidatesInside};
+ return{valid:true,cells,inside:candidatesInside};
+}
+// Retângulos de aviso para a mira do Viagem: no máximo 4 faixas coloridas.
+// Assim não precisamos atualizar 49 objetos locais em cada movimento do mouse.
+function outsideBands(box,c){
+ const x0=box.x,x1=box.x+box.w,y0=box.y,y1=box.y+box.h;
+ const a=clamp(c.min.x,x0,x1),b=clamp(c.max.x,x0,x1);
+ const top=clamp(c.min.y,y0,y1),bottom=clamp(c.max.y,y0,y1);
+ const rects=[
+   {x:x0,y:y0,w:Math.max(0,a-x0),h:box.h},
+   {x:b,y:y0,w:Math.max(0,x1-b),h:box.h},
+   {x:a,y:y0,w:Math.max(0,b-a),h:Math.max(0,top-y0)},
+   {x:a,y:bottom,w:Math.max(0,b-a),h:Math.max(0,y1-bottom)}
+ ];
+ return rects.filter(r=>r.w>0&&r.h>0);
 }
 function pickCell(cells){const a=new Uint32Array(1);crypto.getRandomValues(a);return cells[Math.floor(a[0]/4294967296*cells.length)];}
+// ================= v0.13 · ESTADO DA BOLA E PASSE ================
+const BALL_STATE=ID+"/ball-state";
+const QUALITY_RULES={
+ A:{seconds:20,penalty:0,disadvantage:false,reach:0},
+ B:{seconds:10,penalty:0,disadvantage:false,reach:0},
+ C:{seconds:5,penalty:-1,disadvantage:false,reach:6},
+ D:{seconds:5,penalty:0,disadvantage:true,reach:16}
+};
+function classifyReception(diff){
+ return diff>=5?"A":diff>=0?"B":diff>=-2?"C":diff>=-4?"D":"Ace";
+}
+function newTimer(quality){
+ const durationMs=(QUALITY_RULES[quality]?.seconds||0)*1000;
+ return {durationMs,remainingMs:durationMs,status:durationMs?"idle":"disabled",endsAt:null};
+}
+function timerRemaining(t,now=Date.now()){
+ if(!t)return 0;
+ return Math.max(0,t.status==="running"?Number(t.endsAt||now)-now:Number(t.remainingMs||0));
+}
+function fmtTimer(ms){
+ const t=Math.max(0,Math.ceil(ms/100));
+ return `${Math.floor(t/600)}:${String(Math.floor(t%600/10)).padStart(2,"0")}.${t%10}`;
+}
+function ballDescription(state){
+ if(!state)return "Nenhum saque registrado.";
+ const name=state.serverName||"Sacador",type=SERVE_TYPES[state.type]?.name||"Saque";
+ return `${name} · ${type} · resultado ${state.total??"—"}`;
+}
+// ================================================================
+
 async function setBall(itemId,enabled){
  const all=await OBR.scene.items.getItems(i=>isBall(i)||i.id===itemId);
  if(!all.some(i=>i.id===itemId&&i.layer==="MOUNT"))throw Error("Selecione um objeto em Montarias.");
@@ -166,9 +249,85 @@ async function setBall(itemId,enabled){
 }
 
 // ==================== PROCESSO DE FUNDO ==========================
+// O processo de fundo do mestre conclui o timer mesmo com a ficha fechada.
+const AUTO_DICE_SOURCE=ID+"/auto-levantamento";
+let autoTimerBusy=false;
+async function backgroundDice(notation){
+ const readyId=newId();
+ const ready=await new Promise(resolve=>{
+   let finished=false;
+   const off=OBR.broadcast.onMessage("dice-plus/isReady",e=>{
+     if(e.data?.requestId===readyId&&e.data?.ready===true){finished=true;off();clearTimeout(timeout);resolve(true);}
+   });
+   const timeout=setTimeout(()=>{if(!finished){off();resolve(false);}},1700);
+   OBR.broadcast.sendMessage("dice-plus/isReady",{requestId:readyId,timestamp:Date.now()},{destination:"ALL"}).catch(()=>{if(!finished){off();clearTimeout(timeout);resolve(false);}});
+ });
+ if(!ready)throw Error("Dice+ indisponível na sala.");
+ const rollId=newId();
+ return new Promise((resolve,reject)=>{
+   const done=(error,data)=>{clearTimeout(timeout);offOk();offError();error?reject(error):resolve(data);};
+   const offOk=OBR.broadcast.onMessage(AUTO_DICE_SOURCE+"/roll-result",e=>{
+     if(e.data?.rollId===rollId){const total=e.data.result?.totalValue;
+       if(!Number.isFinite(total))done(Error("Resultado de dado inválido."));
+       else done(null,{total,natural:dieFromResult(e.data),rollId});}
+   });
+   const offError=OBR.broadcast.onMessage(AUTO_DICE_SOURCE+"/roll-error",e=>{
+     if(e.data?.rollId===rollId)done(Error(e.data?.error||"Erro no Dice+"));
+   });
+   const timeout=setTimeout(()=>done(Error("O Dice+ não retornou a rolagem.")),46000);
+   Promise.all([OBR.player.getId(),OBR.player.getName()]).then(([playerId,playerName])=>
+     OBR.broadcast.sendMessage("dice-plus/roll-request",{
+       rollId,playerId,playerName,rollTarget:"everyone",diceNotation:notation,
+       showResults:true,timestamp:Date.now(),source:AUTO_DICE_SOURCE
+     },{destination:"ALL"})).catch(done);
+ });
+}
+async function backgroundSave(next){
+ const balls=await OBR.scene.items.getItems(isBall);
+ if(balls.length!==1)throw Error("Bola oficial não identificada.");
+ await OBR.scene.items.updateItems([balls[0].id],draft=>{
+   for(const item of draft)item.metadata[BALL_STATE]={...next,ballId:balls[0].id};
+ });
+ await OBR.scene.setMetadata({[RALLY]:{...next,ballId:balls[0].id}});
+}
+async function backgroundExpireTimer(){
+ if(autoTimerBusy||await OBR.player.getRole()!=="GM"||!await OBR.scene.isReady())return;
+ const current=(await OBR.scene.getMetadata())[RALLY];
+ if(!current?.setterId||current.timer?.status!=="running"||timerRemaining(current.timer)>0)return;
+ autoTimerBusy=true;
+ try{
+   const [setter]=await OBR.scene.items.getItems([current.setterId]);
+   if(!isCharacter(setter))throw Error("Levantador não encontrado.");
+   const conditions=QUALITY_RULES[current.quality];
+   if(!conditions)throw Error("Qualidade de Passe desconhecida.");
+   const mod=sheetOf(setter).attributes.Levantamento+conditions.penalty;
+   const notation=`${conditions.disadvantage?"2d20kl1":"1d20"}${mod<0?"-":"+"}${Math.abs(mod)}`;
+   const working={...current,phase:"resolvendo",timer:{...current.timer,status:"resolving",remainingMs:0,endsAt:null}};
+   await backgroundSave(working);
+   const rolled=await backgroundDice(notation);
+   const latest=(await OBR.scene.getMetadata())[RALLY];
+   if(latest?.serveId!==current.serveId||latest?.phase!=="resolvendo")return;
+   const lifting={setterId:current.setterId,setterName:sheetOf(setter).name,total:rolled.total,
+     natural:rolled.natural,notation,at:Date.now()};
+   await backgroundSave({...latest,lifting,phase:"levantado",timer:{...latest.timer,status:"done",remainingMs:0}});
+   await notify(`🏐 Levantamento de ${lifting.setterName}: ${lifting.total} (Passe ${current.quality}).`);
+ }catch(error){
+   console.error("Haikyuu Timer automático",error);
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId===current.serveId&&fresh?.timer?.status==="resolving"){
+     await backgroundSave({...fresh,phase:"aguardando_mestre",timer:{...fresh.timer,status:"error"}}).catch(console.warn);
+   }
+   await notify(`Falha no Levantamento automático: ${error.message}`,"ERROR");
+ }finally{autoTimerBusy=false;}
+}
+
 async function startBackground(){
  app.innerHTML="";document.body.style.display="none";
- let firstCorner=null,previewIds=[],previewJob=null,previewKey="",active=false,executing=false,dpi=0,court=null;
+ setInterval(()=>{void backgroundExpireTimer().catch(console.warn);},250);
+ let firstCorner=null,previewIds=[],previewJob=null,previewKey="",previewType=null,active=false,executing=false,dpi=0,court=null;
+ let pointerServeMeta=null;
+ let myPlayerId=await OBR.player.getId();
+ let calibrationPreviewIds=[],calibrationPreviewJob=null,calibrationPreviewKey="",calibrationNonce=null;
  let lastSelection=null,opening=false,selectionSerial=0,pendingPoint=null,pendingMeta=null,painting=false;
  async function openLeftSheet(){
    if(opening)return;
@@ -192,24 +351,86 @@ async function startBackground(){
  OBR.player.onChange(p=>{void openSelection(p.selection).catch(console.warn);});
  OBR.scene.onReadyChange(ready=>{
    if(ready){lastSelection=null;void OBR.player.getSelection().then(openSelection).catch(console.warn);}
-   else{court=null;firstCorner=null;dpi=0;void removePreview();}
+   else{court=null;firstCorner=null;dpi=0;void removePreview();void clearCalibrationPreview();}
  });
  await OBR.contextMenu.create({id:ID+"/abrir-ficha",icons:[{icon:ICON,label:"Abrir ficha Haikyuu!!",filter:{min:1,max:1,every:[{key:"layer",value:"CHARACTER"}]}}],
    async onClick(ctx){await OBR.player.select([ctx.items[0].id],true);await openLeftSheet();}});
  await OBR.contextMenu.create({id:ID+"/definir-bola",icons:[{icon:ICON,label:"Definir como bola",filter:{min:1,max:1,roles:["GM"],every:[{key:"layer",value:"MOUNT"}]}}],
    async onClick(ctx){try{await setBall(ctx.items[0].id,true);await OBR.player.select([ctx.items[0].id],true);await openLeftSheet();await notify("🏐 Bola oficial definida.");}catch(e){await notify(e.message,"ERROR");}}});
  await OBR.tool.create({id:TOOL,icons:[{icon:ICON,label:"Haikyuu!!: mira / calibrar"}],defaultMode:SERVE,defaultMetadata:{serverId:"",serveType:"underhand"}});
- function shape(label,d,color,opacity){return buildShape().shapeType("RECTANGLE").name(label).width(d).height(d).position({x:0,y:0}).layer("DRAWING")
-   .disableHit(true).fillColor(color).fillOpacity(opacity).strokeColor(color).strokeWidth(2).strokeOpacity(.9).build();}
+ function shape(label,width,height,color,opacity,strokeOpacity=.9){
+   return buildShape().shapeType("RECTANGLE").name(label).width(width).height(height).position({x:0,y:0}).layer("DRAWING")
+     .disableHit(true).fillColor(color).fillOpacity(opacity).strokeColor(color).strokeWidth(2).strokeOpacity(strokeOpacity).build();
+ }
  async function removePreview(){previewKey="";pendingPoint=null;
    if(previewJob)try{await previewJob;}catch(e){console.warn(e);}
-   const ids=previewIds;previewIds=[];
+   const ids=previewIds;previewIds=[];previewType=null;
    if(ids.length)try{await OBR.scene.local.deleteItems(ids);}catch(e){console.warn(e);}
  }
- async function ensurePreview(){if(previewIds.length)return;if(previewJob)return previewJob;
-   previewJob=(async()=>{const a=[...Array.from({length:4},(_,i)=>shape(`Destino ${i+1}`,dpi,"#38bdf8",.18)),shape("Mira de saque",dpi,"#22d3ee",.23)];
-   await OBR.scene.local.addItems(a);previewIds=a.map(i=>i.id);})();
+ async function ensurePreview(type){
+   if(previewIds.length&&previewType===type)return;
+   if(previewIds.length&&previewType!==type)await removePreview();
+   if(previewJob){await previewJob;if(previewIds.length&&previewType===type)return;}
+   previewType=type;
+   previewJob=(async()=>{
+     let shapes=[];
+     if(type==="jump"){
+       // 1 retângulo de 7×7 + 4 faixas laranja de FORA (ocultas quando vazias).
+       shapes=[shape("Saque Viagem — 7×7 casas",7*dpi,7*dpi,"#22d3ee",.19),
+         ...Array.from({length:4},(_,i)=>shape(`Parte fora ${i+1}`,dpi,dpi,"#f59e0b",0,0))];
+     }else{
+       const n=SERVE_TYPES[type]?.count||0;
+       shapes=Array.from({length:n},(_,i)=>shape(`Destino ${i+1}`,dpi,dpi,"#38bdf8",.21));
+       if(type==="underhand")shapes.push(shape("Mira 1,5 × 1,5 m",dpi,dpi,"#22d3ee",.23));
+       if(type==="overhand")shapes.push(shape("Retângulo 2 × 3 casas",2*dpi,3*dpi,"#22d3ee",.08));
+       // Na cruz, não criamos retângulo cheio: os 4 cantos devem ficar vazios.
+     }
+     await OBR.scene.local.addItems(shapes);
+     previewIds=shapes.map(s=>s.id);
+   })();
    try{await previewJob;}finally{previewJob=null;}
+ }
+ // Prévia provisória no mapa depois do primeiro canto externo:
+ // amarelo = 27×16,5 m, verde = 21×10,5 m. Não cria itens permanentes.
+ async function clearCalibrationPreview(){
+   calibrationPreviewKey="";
+   if(calibrationPreviewJob)try{await calibrationPreviewJob;}catch(e){console.warn("Calibração",e);}
+   const ids=calibrationPreviewIds;calibrationPreviewIds=[];
+   if(ids.length)try{await OBR.scene.local.deleteItems(ids);}catch(e){console.warn("Calibração",e);}
+ }
+ async function previewCalibration(point){
+   if(!firstCorner || !point)return;
+   const size=await OBR.scene.grid.getDpi();
+   const p=await OBR.scene.grid.snapPosition(point,1,true,false);
+   const x=firstCorner.x+(p.x<firstCorner.x?-COURT_CELLS.outerX*size:0);
+   const y=firstCorner.y+(p.y<firstCorner.y?-COURT_CELLS.outerY*size:0);
+   const key=`${x}/${y}/${size}`;
+   if(key===calibrationPreviewKey&&calibrationPreviewIds.length)return;
+   if(!calibrationPreviewIds.length){
+     if(calibrationPreviewJob)await calibrationPreviewJob;
+     else {
+       const border=(name,w,h,color,opacity)=>buildShape().shapeType("RECTANGLE")
+         .name(name).position({x:0,y:0}).width(w).height(h).layer("DRAWING")
+         .disableHit(true).fillColor(color).fillOpacity(opacity)
+         .strokeColor(color).strokeWidth(3).strokeOpacity(.9).build();
+       calibrationPreviewJob=(async()=>{
+         const shapes=[
+           border("🏐 Prévia área externa — 27 × 16,5 m",COURT_CELLS.outerX*size,COURT_CELLS.outerY*size,"#facc15",.055),
+           border("🏐 Prévia quadra verde — 21 × 10,5 m",COURT_CELLS.insideX*size,COURT_CELLS.insideY*size,"#4ade80",.075)
+         ];
+         await OBR.scene.local.addItems(shapes);
+         calibrationPreviewIds=shapes.map(s=>s.id);
+       })();
+       try{await calibrationPreviewJob;}finally{calibrationPreviewJob=null;}
+     }
+   }
+   if(!firstCorner || calibrationPreviewIds.length!==2)return;
+   calibrationPreviewKey=key;
+   const loc=[{x,y},{x:x+COURT_CELLS.margin*size,y:y+COURT_CELLS.margin*size}];
+   const order=new Map(calibrationPreviewIds.map((id,i)=>[id,i]));
+   await OBR.scene.local.updateItems(calibrationPreviewIds,items=>{
+     for(const item of items){const i=order.get(item.id);if(i!==undefined)item.position=loc[i];}
+   });
  }
  async function getAim(point,metadata){
    if(!dpi)dpi=await OBR.scene.grid.getDpi();
@@ -221,22 +442,51 @@ async function startBackground(){
    if(!isCharacter(token))return{cross,aim:{valid:false,reason:"Sacador não encontrado."}};
    const bounds=await OBR.scene.items.getItemBounds([sid]);
    const sourceX=bounds?.center?.x??token.position.x;
-   return{cross,aim:aimAt(cross,dpi,court,sourceX)};
+   return{cross,aim:aimAt(cross,dpi,court,sourceX,metadata?.serveType)};
  }
  async function paint(point,metadata){
    if(!active||executing||!point)return;
    const {cross,aim}=await getAim(point,metadata);
-   const key=`${cross.x}/${cross.y}/${metadata?.serverId}/${aim.valid}/${aim.inside?.join("-")}`;
-   if(key===previewKey&&previewIds.length)return;
+   const type=metadata?.serveType;
+   if(!SERVE_TYPES[type]||!aim.cells){await removePreview();return;}
+   const key=`${type}/${cross.x}/${cross.y}/${metadata?.serverId}/${aim.valid}/${aim.inside?.join("-")}`;
+   if(key===previewKey&&previewIds.length&&previewType===type)return;
+   // Primeiro criamos (ou reaproveitamos) os elementos; depois aplicamos a posição.
+   await ensurePreview(type);
+   if(!active||executing||previewType!==type||!previewIds.length)return;
    previewKey=key;
-   if(!aim.cells){await removePreview();return;}
-   await ensurePreview();if(!active||!previewIds.length)return;
-   const places=[...aim.cells.map(p=>({x:p.x-dpi/2,y:p.y-dpi/2})),{x:cross.x-dpi/2,y:cross.y-dpi/2}];
    const lookup=new Map(previewIds.map((id,i)=>[id,i]));
+   if(type==="jump"){
+     const xs=aim.cells.map(p=>p.x),ys=aim.cells.map(p=>p.y);
+     const x=Math.min(...xs)-dpi/2,y=Math.min(...ys)-dpi/2;
+     const block={x,y,w:7*dpi,h:7*dpi};
+     const zones=isCourt(court)&&aim.valid?outsideBands(block,court):[];
+     await OBR.scene.local.updateItems(previewIds,draft=>{
+       for(const item of draft){const i=lookup.get(item.id);
+         if(i===0){item.position={x,y};item.style.fillColor=aim.valid?"#22d3ee":"#fb7185";item.style.strokeColor=aim.valid?"#22d3ee":"#fb7185";}
+         else{
+           const zone=zones[i-1];
+           if(zone){item.position={x:zone.x,y:zone.y};item.width=zone.w;item.height=zone.h;
+             item.style.fillOpacity=.33;item.style.strokeOpacity=.35;}
+           else{item.style.fillOpacity=0;item.style.strokeOpacity=0;}
+         }
+       }
+     });
+     return;
+   }
+   const count=aim.cells.length;
    await OBR.scene.local.updateItems(previewIds,draft=>{
-     for(const item of draft){const k=lookup.get(item.id);item.position=places[k];
-       const color=!aim.valid?"#fb7185":k===4?"#22d3ee":aim.inside[k]?"#38bdf8":"#f59e0b";
-       item.style.fillColor=color;item.style.strokeColor=color;
+     for(const item of draft){const i=lookup.get(item.id);
+       if(i<count){const p=aim.cells[i];item.position={x:p.x-dpi/2,y:p.y-dpi/2};
+         const color=!aim.valid?"#fb7185":aim.inside[i]?"#38bdf8":"#f59e0b";
+         item.style.fillColor=color;item.style.strokeColor=color;}
+       else{
+         // Área principal acompanha o cursor, mas não altera os 4 destinos do baixo.
+         item.position=type==="underhand"?{x:cross.x-dpi/2,y:cross.y-dpi/2}:
+           {x:cross.x-dpi,y:cross.y-dpi};
+         item.style.fillColor=aim.valid?"#22d3ee":"#fb7185";
+         item.style.strokeColor=aim.valid?"#22d3ee":"#fb7185";
+       }
      }
    });
  }
@@ -293,12 +543,29 @@ async function startBackground(){
          serveId:meta.rollId||"",serverId:meta.serverId,sourceTeam,recipientTeam,
          landing:chosen,inside:landedInside,ended:!landedInside,awaitingReception:landedInside,
          receptionPending:false,timestamp:Date.now()};
-       await OBR.scene.setMetadata({[SCORE]:score,[RALLY]:serveResult});
+        const serverName=sheetOf(server).name;
+        const fullRally={...serveResult,ballId:balls[0].id,serverName,
+          phase:landedInside?"recepcao":"encerrado",quality:null,reception:null,
+          setterId:null,setterName:null,reachPassed:false,lifting:null,timer:newTimer(null)};
+        await OBR.scene.items.updateItems([balls[0].id],draft=>{
+          for(const item of draft)item.metadata[BALL_STATE]=fullRally;
+        });
+        await OBR.scene.setMetadata({[SCORE]:score,[RALLY]:fullRally});
        if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
        else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"ALIADOS":"INIMIGOS"}.`);
        else await notify(`🏐 ${t.name}: DENTRO! Recepção: ${t.receive}.`);
        // A bola já chegou: o modo fica livre para iniciar a próxima tentativa.
        await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""});
+       pointerServeMeta=null;
+       // Devolve a ferramenta de seleção ao modo anterior após o saque.
+       if(meta?.restorePointerMode && meta.restorePointerMode!==POINTER_SERVE){
+         try{
+           if(await OBR.tool.getActiveTool()===POINTER_TOOL &&
+              await OBR.tool.getActiveToolMode()===POINTER_SERVE){
+             await OBR.tool.activateMode(POINTER_TOOL,meta.restorePointerMode);
+           }
+         }catch(e){console.warn("Haikyuu: não foi possível restaurar modo de seleção",e);}
+       }
        completion={ok:true,inside:landedInside,naturalFail};
      }finally{await OBR.scene.setMetadata({[LOCK]:null}).catch(console.warn);}
    }catch(e){console.error("Haikyuu saque",e);completion={ok:false,error:e.message};await notify(`Saque: ${e.message}`,"ERROR");}
@@ -327,39 +594,90 @@ async function startBackground(){
    const sourceX=bounds?.center?.x??token.position.x;
    if(!dpi)dpi=await OBR.scene.grid.getDpi();
    // Centro da metade oposta, para manter a mira virtual sempre dentro da faixa válida.
-   const point={x:court.midX+(sourceX<court.midX?3:-3)*dpi,y:(court.min.y+court.max.y)/2};
+   const point={x:court.midX+(sourceX<court.midX?3:-4)*dpi,y:court.min.y+3*dpi};
    await doServe(point,meta);
  })().catch(e=>{console.error("Haikyuu erro automático",e);void notify(`Erro automático: ${e.message}`,"ERROR");});});
+ // O modo da ferramenta oficial continua como alternativa compatível.
+ // A extensão agora também registra um modo na ferramenta nativa de seleção (pointer).
+ // Ao clicar em um saque, a ficha tenta ativar esse modo, sem clicar no ícone 🏐.
+ OBR.broadcast.onMessage(ARM_EVENT,event=>{
+   if(event.data?.playerId!==myPlayerId)return;
+   pointerServeMeta=event.data?.metadata||null;
+   if(!pointerServeMeta?.serverId)void removePreview();
+ });
+ await OBR.tool.createMode({id:POINTER_SERVE,icons:[{
+   icon:ICON,label:"🏐 Mira de Saque (Seleção)",filter:{activeTools:[POINTER_TOOL]}
+ }],cursors:[{cursor:"crosshair"}],
+   onActivate(){
+     active=true;
+     // Caso o modo tenha sido reaberto, sincronizar com a ficha salva no TOOL.
+     void OBR.tool.getMetadata(TOOL).then(meta=>{pointerServeMeta=meta;}).catch(console.warn);
+   },
+   onDeactivate(){active=false;void removePreview();},
+   onToolMove(_ctx,event){
+     // A ferramenta nativa fornece seus próprios metadados; use os do nosso saque.
+     if(pointerServeMeta?.serverId)onMouse(event.pointerPosition,pointerServeMeta);
+   },
+   onToolClick(_ctx,event){
+     void (async()=>{
+       const meta=await OBR.tool.getMetadata(TOOL);
+       pointerServeMeta=meta;
+       await doServe(event.pointerPosition,meta);
+     })().catch(err=>console.error("Haikyuu mira nativa",err));
+     return false;
+   },
+   onToolDragCancel(){void removePreview();}
+ });
  await OBR.tool.createMode({id:SERVE,icons:[{icon:ICON,label:"Mirar Saque",filter:{activeTools:[TOOL]}}],cursors:[{cursor:"crosshair"}],
    onActivate(){active=true;},onDeactivate(){active=false;void removePreview();},
    onToolMove(ctx,e){onMouse(e.pointerPosition,ctx.metadata);},
    onToolClick(ctx,e){void doServe(e.pointerPosition,ctx.metadata);return false;},
    onToolDragCancel(){void removePreview();}
  });
- await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Calibrar Quadra (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
-   onActivate(){firstCorner=null;active=false;void removePreview();},onDeactivate(){firstCorner=null;},
-   onToolClick(_ctx,e){void(async()=>{
+ await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Calibrar contorno externo (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
+   onActivate(){firstCorner=null;calibrationNonce=null;active=false;void removePreview();void clearCalibrationPreview();},
+   onDeactivate(){firstCorner=null;void clearCalibrationPreview();},
+   onToolMove(_ctx,e){if(firstCorner)void previewCalibration(e.pointerPosition).catch(console.warn);},
+   onToolClick(ctx,e){void(async()=>{
      try{
        if((await OBR.player.getRole())!=="GM")throw Error("Somente o mestre pode calibrar.");
        if((await OBR.scene.grid.getType())!=="SQUARE")throw Error("Use a grade quadrada.");
+       // Nova tentativa sempre limpa o primeiro canto anterior, mesmo se o modo já estiver ativo.
+       if(ctx.metadata?.calibrationNonce!==calibrationNonce){
+         firstCorner=null;calibrationNonce=ctx.metadata?.calibrationNonce;await clearCalibrationPreview();
+       }
        const p=await OBR.scene.grid.snapPosition(e.pointerPosition,1,true,false);
-       if(!firstCorner){firstCorner=p;await notify("📍 Primeiro canto interno marcado. Clique no canto oposto.");return;}
-       const a=firstCorner;firstCorner=null;const size=await OBR.scene.grid.getDpi();
-       const min={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y)},max={x:Math.max(a.x,p.x),y:Math.max(a.y,p.y)};
-       const nx=(max.x-min.x)/size,ny=(max.y-min.y)/size;
-       if(Math.abs(nx-12)>.25||Math.abs(ny-6)>.25)throw Error(`Você marcou ${nx.toFixed(1)}×${ny.toFixed(1)} células. Marque 12×6 (18×9 m), com a rede na vertical.`);
+       if(!firstCorner){
+         firstCorner=p;
+         await notify("📍 1º canto EXTERNO marcado. Veja a prévia amarela/verde e clique no canto oposto da borda branca externa.");
+         return;
+       }
+       const a=firstCorner,size=await OBR.scene.grid.getDpi();
+       const outerMin={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y)};
+       const outerMax={x:Math.max(a.x,p.x),y:Math.max(a.y,p.y)};
+       const nx=(outerMax.x-outerMin.x)/size,ny=(outerMax.y-outerMin.y)/size;
+       if(Math.abs(nx-COURT_CELLS.outerX)>.25||Math.abs(ny-COURT_CELLS.outerY)>.25){
+         await notify(`⚠️ Você marcou ${nx.toFixed(1)}×${ny.toFixed(1)} casas. A borda branca externa deve medir 18×11 casas (27×16,5 m). O 1º canto foi mantido; tente novamente o 2º canto.`,"ERROR");
+         return;
+       }
+       const min={x:outerMin.x+COURT_CELLS.margin*size,y:outerMin.y+COURT_CELLS.margin*size};
+       const max={x:outerMax.x-COURT_CELLS.margin*size,y:outerMax.y-COURT_CELLS.margin*size};
        const previous=(await OBR.scene.getMetadata())[COURT];
-       court={min,max,midX:(min.x+max.x)/2,allySide:allySide(previous),version:5};
-       await OBR.scene.setMetadata({[COURT]:court});
-       await notify("✅ Calibrada: interna 18×9 m; externa 24×15 m, com 3 m em todas as direções.");
+       const next={outerMin,outerMax,min,max,midX:(min.x+max.x)/2,
+         allySide:allySide(previous),version:COURT_CALIBRATION_VERSION,gridDpi:size};
+       if(!isCourt(next))throw Error("Falha ao verificar os limites calibrados.");
+       court=next;
+       await OBR.scene.setMetadata({[COURT]:next});
+       firstCorner=null;await clearCalibrationPreview();
+       await notify("✅ Quadra calibrada! Área verde 14×7 casas (21×10,5 m), área externa 18×11 (27×16,5 m), margem 3 m.");
        await OBR.tool.activateMode(TOOL,SERVE);
      }catch(err){await notify(`Quadra: ${err.message}`,"ERROR");}
    })().catch(console.error);return false;}
  });
  OBR.scene.onMetadataChange(meta=>{court=meta[COURT]||null;});
  OBR.scene.grid.onChange(()=>{dpi=0;void removePreview();});
- OBR.tool.onToolChange(t=>{if(t!==TOOL){active=false;void removePreview();}});
- OBR.tool.onToolModeChange(m=>{if(m!==SERVE){active=false;void removePreview();}});
+ OBR.tool.onToolChange(t=>{if(t!==TOOL&&t!==POINTER_TOOL){active=false;firstCorner=null;void removePreview();void clearCalibrationPreview();}});
+ OBR.tool.onToolModeChange(m=>{if(m!==SERVE&&m!==POINTER_SERVE){active=false;void removePreview();}if(m!==CALIBRATE){firstCorner=null;void clearCalibrationPreview();}});
  if(await OBR.scene.isReady()){
    court=(await OBR.scene.getMetadata())[COURT]||null;
    await openSelection(await OBR.player.getSelection());
@@ -370,6 +688,7 @@ async function startBackground(){
 async function startPanel(){
  let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore(),serveLock=null;
  let latestPreparedRollId=null;
+ let previousPointerMode=null;
  let selectSerial=0,busy=false,editingProfile=false;const rolls=new Map();
  // Autosave por token: edição otimista + 500ms de debounce, gravações em fila.
  const pending=new Map(),timers=new Map(),chains=new Map(),localSheets=new Map();
@@ -423,7 +742,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.9</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.13</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div>
  ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
  function choose(){return `<section class="card"><p class="kicker">Token selecionado</p><h2>${escapeHTML(sheetOf(selected).name)}</h2>
@@ -471,10 +790,10 @@ async function startPanel(){
  function serveCard(){return `<section class="card serve"><p class="kicker">Gameplay • Rally</p><h2>🏐 Tipos de Saque</h2>
    <p class="small">Escolha o saque: a rolagem do Dice+ será iniciada automaticamente. O erro depende apenas do D20 natural.</p>
    <div class="serve-list">${Object.entries(SERVE_TYPES).map(([key,t])=>`<button class="serve-option" data-serve="${key}" ${busy||(serveLock?.until>Date.now())?"disabled":""}>
-     <span>🏐 ${t.name}<small>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
-   <p class="small">Mira temporária: 1,5 × 1,5 m para todos. As áreas definitivas dos outros três tipos ainda serão configuradas.</p>
+     <span>🏐 ${t.name}<small>${t.area}<br>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
+   <p class="small">Cada saque tem uma área própria: Baixo (4 destinos), Cima (6), Flutuante (+ com 8) e Viagem (7×7 com 49). Azul = dentro; laranja = fora; vermelho = mira inválida.</p>
    <p class="small">${serveLock?.until>Date.now()?"⏳ Bola em movimento: o próximo saque será liberado ao terminar.":"✅ Pode fazer outro saque após a bola parar. Se pular a recepção, o rally anterior será encerrado sem ponto extra."}</p>
-   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre deve calibrar a quadra"}. Para mirar, use a ferramenta 🏐 se ela ainda não estiver selecionada.</p></section>`;}
+   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre deve calibrar a quadra"}. Ao clicar no saque, tentaremos ativar a mira na ferramenta de seleção automaticamente. Se o Owlbear estiver usando outra ferramenta, use 🏐 como alternativa.</p></section>`;}
  function receiveCard(){
    if(!isCharacter(selected)||!rally?.awaitingReception||!SERVE_TYPES[rally.type]||!isCourt(court))return "";
    const t=SERVE_TYPES[rally.type];
@@ -482,7 +801,7 @@ async function startPanel(){
    return `<section class="card reception-card"><p class="kicker">Recepção do Saque</p><h2>🛡️ ${t.receive}</h2>
     <p class="small">${t.name} recebido: ${t.receptionAttr} ${t.advantage==="adv"?"com vantagem (2d20, maior)":t.advantage==="dis"?"com desvantagem (2d20, menor)":"normal (1d20)"}.</p>
     <button class="wide blue" data-act="receive" ${busy||waiting?"disabled":""}>${waiting?"⏳ Recepção em andamento":"🎲 Rolar recepção pelo Dice+"}</button>
-    <p class="small">O resultado aparece aqui; a disputa entre ataque e recepção será definida nas próximas mecânicas.</p></section>`;
+    <p class="small">O Dice+ compara os resultados. Passe A: +5; B: 0 a +4; C: −1 a −2; D: −3 a −4; Ace: −5 ou menos. Alcance de recepção: até 1,5 m, inclusive diagonal.</p></section>`;
  }
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
@@ -500,32 +819,154 @@ async function startPanel(){
        ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>`:""}
      </section>
      ${attributes(s,role==="GM")}
-     ${serveCard()}${receiveCard()}`;
+     ${serveCard()}${receiveCard()}${setterCard()}`;
    return `<section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
      <label class="field">Nome<input data-profile="name" maxlength="80" value="${escapeHTML(s.name)}" ${editable?"":"disabled"}></label>
      <div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div></section>
      ${attributes(s,editable)}
-     ${serveCard()}${receiveCard()}`;
+     ${serveCard()}${receiveCard()}${setterCard()}`;
  }
- function ballPanel(){return `<section class="card"><p class="kicker">Montarias</p><h2>${isBall(selected)?"🏐 Bola oficial":"Objeto selecionado"}</h2>
- <p class="small">${escapeHTML(selected?.name||"Objeto")}</p>
- ${role==="GM"?`<button class="wide primary" data-act="${isBall(selected)?"unmark":"mark"}">${isBall(selected)?"Desmarcar bola":"🏐 Definir como bola"}</button>`:'<p class="small">Somente o mestre pode definir a bola.</p>'}</section>`;}
+  // O token de bola é a ficha oficial da jogada; a cena mantém um espelho sincronizado.
+  function ballState(){return (isBall(selected)?selected?.metadata?.[BALL_STATE]:null)||rally;}
+  function timerCard(){
+    const s=ballState(),t=s?.timer;
+    if(!s?.reception||s.ended)return "";
+    const q=s.quality||"—",label=q==="Ace"?"Ace":`Passe ${q}`;
+    const ms=timerRemaining(t);
+    const canPlay=role==="GM"&&s.setterId&&(!QUALITY_RULES[q]?.reach||s.reachPassed)&&
+      (t?.status==="idle"||t?.status==="paused"||t?.status==="error");
+    const canPause=role==="GM"&&t?.status==="running";
+    const statusLabel={idle:"Aguardando Play",paused:"Pausado",running:"Em andamento",resolving:"Levantamento no Dice+",done:"Levantamento realizado",error:"Falha na rolagem",disabled:"Sem timer"}[t?.status]||"Aguardando";
+    return `<section class="card reception-card"><p class="kicker">Bola · Levantamento</p>
+      <h2>🏐 ${escapeHTML(label)} · ${s.reception?.total??"—"} vs ${s.total??"—"}</h2>
+      <div class="stat"><span>Margem do Passe</span><b>${s.reception?.difference>0?"+":""}${s.reception?.difference??"—"}</b></div>
+      <div class="stat"><span>Levantador</span><b>${escapeHTML(s.setterName||"Não escolhido")}</b></div>
+      <div class="stat"><span>Condição</span><b>${q==="C"?"−1 no Levantamento":q==="D"?"Desvantagem":"Normal"}</b></div>
+      <p class="small">${QUALITY_RULES[q]?.reach&&!s.reachPassed?`É necessário obter ${QUALITY_RULES[q].reach} ou mais no 1d20 antes de iniciar o timer.`:""}</p>
+      <div style="font-variant-numeric:tabular-nums;font-size:32px;font-weight:900;text-align:center" data-ball-clock>${fmtTimer(ms)}</div>
+      <p class="small" style="text-align:center">${statusLabel}. ${t?.status==="done"?`Resultado do Levantamento: ${s.lifting?.total??"—"}`:""}</p>
+      ${role==="GM"?`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <button data-act="timer-play" ${canPlay?"":"disabled"}>▶ Play</button>
+        <button data-act="timer-pause" ${canPause?"":"disabled"}>⏸ Pausar</button>
+        <button data-act="timer-reset" ${["running","paused","idle","error"].includes(t?.status)?"":"disabled"}>↺ Reset</button>
+      </div><p class="small">Só o mestre controla o timer. Ao zerar, o Dice+ faz o Levantamento automaticamente.</p>`:""}
+    </section>`;
+  }
+  function setterCard(){
+    if(!isCharacter(selected)||!rally?.reception||rally.ended||rally.phase==="levantado"||rally.phase==="resolvendo")return "";
+    if(currentSheet().position!=="Levantador")return "";
+    const assigned=rally.setterId===selectedId;
+    return `<section class="card reception-card"><h2>🏐 Próxima ação: Levantamento</h2>
+      <p class="small">${rally.quality==="C"||rally.quality==="D"?`Passe ${rally.quality}: precisa testar alcance antes do timer.`:`Passe ${rally.quality}: sem teste para alcançar.`}</p>
+      ${!assigned?`<button class="wide blue" data-act="choose-setter">✓ Assumir como Levantador</button>`:
+       rally.quality==="C"||rally.quality==="D"?`<button class="wide blue" data-act="test-reach" ${rally.reachPassed||rally.phase==="alcance_falhou"?"disabled":""}>🎲 Testar alcance (1d20 ≥ ${QUALITY_RULES[rally.quality].reach})</button>`:
+       '<p class="small">✓ Levantador registrado. Aguardando Play do mestre.</p>'}
+      ${rally.phase==="alcance_falhou"?'<p class="notice warn">Falha ao alcançar a bola. A regra de recuperação ainda será definida; nenhum ponto foi dado automaticamente.</p>':""}
+    </section>`;
+  }
+  async function commitRally(next,addPoint=false){
+    const ball=items.find(isBall);
+    if(!ball)throw Error("Defina uma bola oficial em Montarias.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||current.serveId!==next.serveId||current.timestamp!==next.timestamp)
+      throw Error("O rally foi alterado. Atualize a ficha antes de continuar.");
+    await OBR.scene.items.updateItems([ball.id],draft=>{
+      for(const i of draft)i.metadata[BALL_STATE]={...next,ballId:ball.id};
+    });
+    const patch={[RALLY]:{...next,ballId:ball.id}};
+    if(addPoint){const meta=await OBR.scene.getMetadata();const sc=cleanScore(meta[SCORE]);sc[next.sourceTeam]++;patch[SCORE]=sc;}
+    await OBR.scene.setMetadata(patch);
+    rally=patch[RALLY];
+    render();
+  }
+  async function chooseSetter(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current?.reception||current.ended||!QUALITY_RULES[current.quality])throw Error("Aguardando recepção válida.");
+    if(!isCharacter(selected)||currentSheet().position!=="Levantador")throw Error("Selecione um atleta da posição Levantador.");
+    const [token]=await OBR.scene.items.getItems([selectedId]);
+    const bounds=await OBR.scene.items.getItemBounds([selectedId]);
+    if(teamOfX(bounds?.center?.x??token.position.x,court)!==current.recipientTeam)throw Error("O levantador deve ser da equipe receptora.");
+    if(current.timer?.status==="running"||current.timer?.status==="done")throw Error("O timer já está em andamento ou foi concluído.");
+    const needsReach=QUALITY_RULES[current.quality].reach>0;
+    await commitRally({...current,setterId:selectedId,setterName:currentSheet().name,
+      reachPassed:!needsReach,phase:needsReach?"aguardando_alcance":"aguardando_mestre",timer:newTimer(current.quality)});
+    status(needsReach?"Levantador escolhido. Faça o teste de alcance.":"Levantador escolhido. O mestre já pode dar Play.");
+  }
+  async function reachTest(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||!QUALITY_RULES[current.quality]?.reach||current.setterId!==selectedId)throw Error("Escolha o Levantador antes do teste.");
+    if(current.reachPassed||current.phase==="alcance_falhou")throw Error("O teste de alcance já foi resolvido.");
+    const required=QUALITY_RULES[current.quality].reach;
+    const rolled=await requestDice("1d20+0",`${current.setterName} • Alcançar Passe ${current.quality}`,true);
+    const latest=(await OBR.scene.getMetadata())[RALLY];
+    if(latest?.serveId!==current.serveId)throw Error("Outro rally começou durante a rolagem.");
+    const passed=rolled.total>=required;
+    await commitRally({...latest,reachPassed:passed,reachTotal:rolled.total,
+      phase:passed?"aguardando_mestre":"alcance_falhou"});
+    status(passed?`✅ Levantador alcançou a bola com ${rolled.total}! Aguardando Play do mestre.`:
+      `⚠️ Resultado ${rolled.total}: não alcançou a bola. Recuperação depende de regra futura.`,passed?"ok":"warn");
+  }
+  async function controlTimer(action){
+    if(role!=="GM")throw Error("Apenas o mestre controla o timer.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current?.reception||current.ended||!QUALITY_RULES[current.quality])throw Error("Nenhum passe aguardando Levantamento.");
+    const now=Date.now(),old=current.timer||newTimer(current.quality);
+    let next;
+    if(action==="play"){
+      if(!current.setterId||!current.reachPassed)throw Error("Escolha o Levantador e resolva o alcance antes do Play.");
+      if(!["idle","paused","error"].includes(old.status))throw Error("O timer não está disponível para Play.");
+      const remaining=old.status==="error"?old.durationMs:timerRemaining(old,now);
+      next={...old,status:"running",remainingMs:remaining,endsAt:now+remaining};
+    }else if(action==="pause"){
+      if(old.status!=="running")throw Error("O timer não está rodando.");
+      next={...old,status:"paused",remainingMs:timerRemaining(old,now),endsAt:null};
+    }else if(action==="reset"){
+      if(["resolving","done"].includes(old.status))throw Error("O Levantamento já está resolvido.");
+      next=newTimer(current.quality);
+    }else throw Error("Comando de timer inválido.");
+    await commitRally({...current,timer:next,phase:"aguardando_mestre"});
+    status(action==="play"?"▶ Timer iniciado pelo mestre.":action==="pause"?"⏸ Timer pausado pelo mestre.":"↺ Timer reiniciado.");
+  }
+  setInterval(()=>{
+    if(!rally?.timer)return;
+    for(const el of document.querySelectorAll("[data-ball-clock]"))el.textContent=fmtTimer(timerRemaining(rally.timer));
+  },200);
+
+   function ballPanel(){
+    const s=ballState();
+    return `<section class="card reception-card"><p class="kicker">Ficha Independente · Bola</p>
+      <h2>${isBall(selected)?"🏐 Bola oficial":"Objeto selecionado"}</h2>
+      <p class="small">${escapeHTML(selected?.name||"Objeto")}</p>
+      <div class="stat"><span>Último saque</span><b>${escapeHTML(ballDescription(s))}</b></div>
+      <div class="stat"><span>Dificuldade de recepção</span><strong style="font-size:24px">${s?.total??"—"}</strong></div>
+      ${s?.reception?`<div class="stat"><span>Recepção</span><b>${escapeHTML(s.reception.receiverName||"Receptor")} · ${s.reception.total}</b></div>
+        <div class="stat"><span>Qualidade</span><b>${s.quality==="Ace"?"Ace":"Passe "+escapeHTML(s.quality)}</b></div>`:""}
+      ${s?.lifting?`<div class="stat"><span>Levantamento</span><b>${s.lifting.total} · ${escapeHTML(s.lifting.setterName)}</b></div>`:""}
+      ${role==="GM"?`<button class="wide primary" data-act="${isBall(selected)?"unmark":"mark"}">${isBall(selected)?"Desmarcar bola":"🏐 Definir como bola"}</button>`:'<p class="small">Somente o mestre pode definir a bola.</p>'}
+    </section>${timerCard()}`;
+  }
  function gmPanel(){if(role!=="GM")return '<section class="card">Acesso restrito ao mestre.</section>';
  return `<section class="card"><p class="kicker">Ficha Mestre</p><h2>⚙️ Partida</h2>
  <div class="stat"><span>Quadra</span><b>${isCourt(court)?"Calibrada":"Pendente"}</b></div>
  <div class="stat"><span>Bolas oficiais</span><b>${items.filter(isBall).length}</b></div>
  <div class="stat"><span>NPCs</span><b>${items.filter(i=>isCharacter(i)&&sheetOf(i).kind==="npc").length}</b></div>
  <p class="small">Grade: ${escapeHTML(grid||"não definida")}. Referência do RPG: 1 casa = 1,5 m.</p></section>
- <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Aliados<strong>${score.allies}</strong></div><div>Inimigos<strong>${score.enemies}</strong></div></div>
- <p class="small">${rally?.ended?"Último rally encerrado: bola fora.":rally?.awaitingReception?"Rally aberto: aguardando recepção.":"Nenhuma recepção pendente."}</p>
+  ${timerCard()}
+  <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Aliados<strong>${score.allies}</strong></div><div>Inimigos<strong>${score.enemies}</strong></div></div>
+ <p class="small">${rally?.ended?(rally.quality==="Ace"?"Ace — ponto direto do sacador.":"Último rally encerrado: bola fora."):rally?.reception?`Passe ${rally.quality} registrado na bola. Próxima etapa: Levantamento.`:rally?.awaitingReception?"Rally aberto: aguardando recepção.":"Nenhuma recepção pendente."}</p>
  <button class="wide" data-act="reset-score">Zerar placar (Mestre)</button></section>
  <section class="card"><h2>🏐 Lados das equipes</h2><p class="small">Escolha o lado dos aliados. Os inimigos ficam automaticamente no lado oposto.</p>
  <label class="radio"><input type="radio" name="ally" value="LEFT" ${allySide(court)==="LEFT"?"checked":""}> Aliados à esquerda / Inimigos à direita</label>
  <label class="radio"><input type="radio" name="ally" value="RIGHT" ${allySide(court)==="RIGHT"?"checked":""}> Aliados à direita / Inimigos à esquerda</label>
  <p class="small">Configuração compartilhada para toda a sala, inclusive os saques dos NPCs.</p></section>
- <section class="card"><h2>📐 Calibrar quadra</h2><p class="small"><b>Interna:</b> 18 × 9 m (12 × 6 casas). <b>Externa:</b> 24 × 15 m (16 × 10 casas), incluindo 3 m além de cada linha.</p>
- <p class="small">Clique em calibrar e marque no mapa os dois cantos opostos das <b>linhas internas</b>. O plugin acrescenta automaticamente a região exterior.</p>
- <button class="primary wide" data-act="calibrate">${isCourt(court)?"Recalibrar quadra":"Calibrar quadra"}</button></section>
+ <section class="card"><h2>📐 Calibrar quadra</h2>
+ <p class="small"><b>Área verde:</b> 21 × 10,5 m (14 × 7 casas).<br>
+ <b>Contorno externo:</b> 27 × 16,5 m (18 × 11 casas).<br>
+ <b>Faixa vermelha:</b> 3 metros (2 casas) em cada direção.</p>
+ <p class="small"><b>Mais fácil:</b> clique primeiro no canto superior esquerdo da <b>borda branca externa</b>, depois no canto inferior direito da mesma borda. A prévia amarela mostra o exterior; a verde mostra as linhas internas.</p>
+ <p class="small">A régua das imagens mostra 25,5 × 15 m porque está posicionada aproximadamente meio quadrado para dentro das bordas; para calibrar, use a borda branca externa.</p>
+ <p class="small">${isCourt(court)?"✅ Limites salvos para a sala. A mira e as bolas fora respeitam a faixa vermelha.":"⚠️ Calibração antiga ou ausente. Refaça usando o contorno externo."}</p>
+ <button class="primary wide" data-act="calibrate">${isCourt(court)?"Recalibrar contorno externo":"Calibrar contorno externo"}</button></section>
  ${isCharacter(selected)?`<section class="card"><h2>Classificar token</h2><div class="controls"><button data-act="type-player">👤 Registrar como Jogador</button><button data-act="type-npc">🎭 Registrar como NPC</button></div></section>`:""}
  ${selected?.layer==="MOUNT"?ballPanel():""}`;}
  function render(){let body="";
@@ -549,7 +990,40 @@ async function startPanel(){
    if(id===selectedId){stage(patch,true);await flush(id);return;}
    await OBR.scene.items.updateItems([id],draft=>{for(const i of draft){const old=i.metadata[SHEET]||{},data=mergePatch(sheetOf(i),patch);i.metadata[SHEET]={...old,...data};}});
  }
- async function prepare(mode,metadata){await OBR.tool.setMetadata(TOOL,metadata);await OBR.tool.activateMode(TOOL,mode);}
+ // Ativa a mira na ferramenta de seleção sempre que possível, sem exigir clicar no ícone.
+ // Calibração permanece no modo exclusivo do Haikyuu para não interferir na seleção.
+ async function prepare(mode,metadata){
+   let currentTool=await OBR.tool.getActiveTool();
+   if(mode===SERVE&&currentTool===POINTER_TOOL){
+     const currentMode=await OBR.tool.getActiveToolMode();
+     if(currentMode!==POINTER_SERVE)previousPointerMode=currentMode||null;
+   }
+   const data=mode===SERVE?{...metadata,restorePointerMode:previousPointerMode}:{...metadata};
+   await OBR.tool.setMetadata(TOOL,data);
+   if(mode===SERVE){
+     if(currentTool===TOOL){
+       await OBR.tool.activateMode(TOOL,SERVE);
+     }else{
+       try{
+         await OBR.tool.activateMode(POINTER_TOOL,POINTER_SERVE);
+       }catch(err){
+         console.warn("Haikyuu: modo de seleção indisponível",err);
+         await OBR.tool.activateMode(TOOL,SERVE).catch(console.warn);
+       }
+     }
+     await OBR.broadcast.sendMessage(ARM_EVENT,{
+       playerId:await OBR.player.getId(),metadata:data
+     },{destination:"ALL"});
+   }else{
+     await OBR.tool.activateMode(TOOL,mode);
+   }
+   return {
+     tool:await OBR.tool.getActiveTool(),
+     mode:await OBR.tool.getActiveToolMode()
+   };
+ }
+ const aimActivated=state=>(state.tool===POINTER_TOOL&&state.mode===POINTER_SERVE)||
+   (state.tool===TOOL&&state.mode===SERVE);
  async function readyDice(){const requestId=newId();return new Promise(resolve=>{
    let done=false,timer;const finish=val=>{if(done)return;done=true;clearTimeout(timer);unsubscribe();resolve(val);};
    const unsubscribe=OBR.broadcast.onMessage("dice-plus/isReady",event=>{
@@ -596,6 +1070,8 @@ async function startPanel(){
    if((await OBR.scene.getMetadata())[LOCK]?.until>Date.now())throw Error("Aguarde o saque atual terminar.");
    const serverId=selectedId;
    latestPreparedRollId=null;
+   // Uma nova tentativa não deve reutilizar o modo original de um saque antigo.
+   if((await OBR.tool.getActiveTool())!==POINTER_TOOL)previousPointerMode=null;
    const s=currentSheet();
    const modifier=s.attributes.Saque+t.mod;
    // Encerra apenas a recepção pendente ANTERIOR, sem atribuir ponto extra.
@@ -609,14 +1085,14 @@ async function startPanel(){
      rally=ended;
    }
    // A mira fica preparada enquanto os dados rolam; um clique antes do resultado não lança a bola.
-   await prepare(SERVE,{serverId,serveType:type,rollConfirmed:false,natural:0,total:0,rollId:""});
-   status(`🎲 ${t.name}: rolando ${makeNotation(modifier)} no Dice+…`);
+   const initialAim=await prepare(SERVE,{serverId,serveType:type,rollConfirmed:false,natural:0,total:0,rollId:""});
+   status(`🎲 ${t.name}: rolando ${makeNotation(modifier)} no Dice+… ${aimActivated(initialAim)?"Mira ativada no mapa.":"Se necessário, selecione 🏐 uma vez no Owlbear."}`);
    try{
      const r=await requestDice(makeNotation(modifier),`${s.name} • ${t.name}`,true);
      if(selectedId!==serverId)throw Error("O token selecionado mudou durante o saque. Prepare novamente.");
-     await prepare(SERVE,{serverId,serveType:type,rollConfirmed:true,natural:r.natural,total:r.total,rollId:r.rollId});
+     const aimState=await prepare(SERVE,{serverId,serveType:type,rollConfirmed:true,natural:r.natural,total:r.total,rollId:r.rollId});
      latestPreparedRollId=r.rollId;
-     const activeTool=await OBR.tool.getActiveTool();
+     const hasAim=aimActivated(aimState);
      const fail=r.natural<=t.fail;
      if(fail){
        status(`🚫 ${t.name}: D20 natural ${r.natural}. Bola saindo da quadra...`,"warn");
@@ -625,11 +1101,12 @@ async function startPanel(){
        });
        status(`🚫 ${t.name}: D20 ${r.natural}. Erro automático e ponto adversário. ✅ Já pode sacar novamente.`,"warn");
      }else{
-       status(`🎲 ${t.name}: D20 natural ${r.natural}; total ${r.total}. Mire no lado adversário. ${activeTool!==TOOL?"Selecione a ferramenta 🏐 uma vez na barra do Owlbear.":"Mira pronta."}`,
-         activeTool!==TOOL?"warn":"ok");
+       status(`🎲 ${t.name}: D20 natural ${r.natural}; total ${r.total}. ${hasAim?"🎯 Mira automática pronta! Mova o mouse para a quadra adversária.":"⚠️ Não foi possível ativar a ferramenta atual. Selecione 🏐 na barra para mirar."}`,
+         hasAim?"ok":"warn");
      }
    }catch(err){
-     await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""}).catch(console.warn);
+       await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,natural:0,total:0,rollId:""}).catch(console.warn);
+     await OBR.broadcast.sendMessage(ARM_EVENT,{playerId:await OBR.player.getId(),metadata:null},{destination:"ALL"}).catch(console.warn);
      throw err;
    }
  }
@@ -650,31 +1127,46 @@ async function startPanel(){
      OBR.broadcast.sendMessage(`${ID}/auto-fault`,payload,{destination:"ALL"}).catch(done);
    });
  }
- async function receiveServe(){
-   const meta=await OBR.scene.getMetadata();const current=meta[RALLY];
-   if(!current?.awaitingReception||current.receptionPending||!SERVE_TYPES[current.type])throw Error("Não há uma recepção disponível.");
-   if(!isCharacter(selected)||!isCourt(court))throw Error("Selecione o token recebedor.");
-   const [item]=await OBR.scene.items.getItems([selectedId]);
-   const bounds=await OBR.scene.items.getItemBounds([selectedId]);
-   const x=bounds?.center?.x??item.position.x;
-   if(teamOfX(x,court)!==current.recipientTeam)throw Error("O recebedor deve estar no lado da equipe que recebeu o saque.");
-   const s=currentSheet(),t=SERVE_TYPES[current.type];
-   const notation=receptionNotation(current.type,s.attributes[t.receptionAttr]);
-   await OBR.scene.setMetadata({[RALLY]:{...current,receptionPending:true,receiverId:selectedId}});
-   try{
-     status(`🛡️ ${t.receive}: rolando ${notation} no Dice+…`);
-     const r=await requestDice(notation,`${s.name} • ${t.receive}`);
-     const latest=(await OBR.scene.getMetadata())[RALLY];
-     if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp)throw Error("O Rally mudou durante a recepção.");
-     await OBR.scene.setMetadata({[RALLY]:{...latest,receptionPending:false,awaitingReception:false,
-       reception:{receiverId:selectedId,total:r.total,natural:r.natural,notation},ended:false}});
-     status(`🛡️ ${t.receive}: total ${r.total}. Recepção realizada!`);
-   }catch(e){
-     const latest=(await OBR.scene.getMetadata())[RALLY];
-     if(latest?.timestamp===current.timestamp)await OBR.scene.setMetadata({[RALLY]:{...latest,receptionPending:false}});
-     throw e;
-   }
- }
+  async function receiveServe(){
+    const meta=await OBR.scene.getMetadata(),current=meta[RALLY];
+    if(!current?.awaitingReception||current.receptionPending||!SERVE_TYPES[current.type])throw Error("Não há uma recepção disponível.");
+    if(!isCharacter(selected)||!isCourt(court))throw Error("Selecione o token recebedor.");
+    const balls=await OBR.scene.items.getItems(isBall);
+    if(balls.length!==1)throw Error("Defina uma bola oficial em Montarias.");
+    const [item]=await OBR.scene.items.getItems([selectedId]);
+    const bounds=await OBR.scene.items.getItemBounds([selectedId]);
+    const ballBounds=await OBR.scene.items.getItemBounds([balls[0].id]);
+    const center=bounds?.center||item?.position,ballCenter=ballBounds?.center||balls[0].position;
+    if(!center||!ballCenter)throw Error("Não foi possível localizar os tokens na grade.");
+    if(teamOfX(center.x,court)!==current.recipientTeam)throw Error("O recebedor deve ser da equipe que recebeu o saque.");
+    const dpi=await OBR.scene.grid.getDpi();
+    if(Math.abs(center.x-ballCenter.x)>dpi*1.02||Math.abs(center.y-ballCenter.y)>dpi*1.02)
+      throw Error("A bola precisa estar a até 1,5 m do receptor (inclusive diagonais).");
+    const s=currentSheet(),t=SERVE_TYPES[current.type];
+    const notation=receptionNotation(current.type,s.attributes[t.receptionAttr]);
+    await commitRally({...current,receptionPending:true,receiverId:selectedId});
+    try{
+      status(`🛡️ ${t.receive}: rolando ${notation} no Dice+…`);
+      const rolled=await requestDice(notation,`${s.name} • ${t.receive}`);
+      const latest=(await OBR.scene.getMetadata())[RALLY];
+      if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp)
+        throw Error("O Rally mudou durante a recepção.");
+      const difference=rolled.total-current.total;
+      const quality=classifyReception(difference),ace=quality==="Ace";
+      const reception={receiverId:selectedId,receiverName:s.name,attribute:t.receptionAttr,
+        total:rolled.total,natural:rolled.natural,notation,difference,quality,at:Date.now()};
+      const next={...latest,receptionPending:false,awaitingReception:false,
+        reception,quality,ended:ace,phase:ace?"encerrado":"aguardando_levantador",timer:newTimer(quality)};
+      await commitRally(next,ace);
+      status(ace?`🚫 Ace! Saque ${latest.total} vs ${t.receptionAttr} ${rolled.total} (margem ${difference}). Ponto da equipe sacadora.`:
+        `✅ Passe ${quality}! ${latest.total} vs ${rolled.total} (margem ${difference}). Timer ${QUALITY_RULES[quality].seconds}s aguardando o mestre.`,ace?"warn":"ok");
+    }catch(e){
+      const latest=(await OBR.scene.getMetadata())[RALLY];
+      if(latest?.timestamp===current.timestamp&&latest.receptionPending)
+        await commitRally({...latest,receptionPending:false}).catch(console.warn);
+      throw e;
+    }
+  }
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
    if(b.dataset.view){view=b.dataset.view;editingProfile=false;message="";render();return;}
    if(busy)return;
@@ -724,9 +1216,14 @@ async function startPanel(){
        case "type-npc":await saveSheet({kind:"npc"});status("Token registrado como NPC.");break;
        case "mark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,true);status("🏐 Bola oficial definida.");break;
        case "unmark":if(role!=="GM")throw Error("Só o mestre define a bola.");await setBall(selectedId,false);status("Bola desmarcada.");break;
-       case "calibrate":if(role!=="GM")throw Error("Só o mestre calibra.");await prepare(CALIBRATE,{serverId:"",serveType:""});
-         status("Selecione a ferramenta 🏐 do Owlbear, depois clique nos dois cantos internos da quadra.");break;
-       case "receive":await receiveServe();break;
+       case "calibrate":if(role!=="GM")throw Error("Só o mestre calibra."); await prepare(CALIBRATE,{serverId:"",serveType:"",calibrationNonce:newId()});
+         status("Na ferramenta 🏐, marque o canto superior esquerdo e o canto inferior direito da BORDA BRANCA EXTERNA. A prévia mostrará o contorno amarelo (18×11 casas) e a área verde (14×7).");break;
+        case "receive":await receiveServe();break;
+        case "choose-setter":await chooseSetter();break;
+        case "test-reach":await reachTest();break;
+        case "timer-play":await controlTimer("play");break;
+        case "timer-pause":await controlTimer("pause");break;
+        case "timer-reset":await controlTimer("reset");break;
        case "reset-score":
          if(role!=="GM")throw Error("Apenas o mestre pode zerar o placar.");
          await OBR.scene.setMetadata({[SCORE]:{allies:0,enemies:0}});
@@ -833,7 +1330,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.9</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.13</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
