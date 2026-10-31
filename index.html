@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.16</title>
+<title>Haikyuu!! Road to the Top — 0.18</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -52,13 +52,19 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 .scoreboard div{border:1px solid #516178;background:#172737;padding:12px;border-radius:10px;text-align:center}
 .scoreboard strong{display:block;font-size:26px;color:#f8d699}.reception-card{border-color:#71c5a5;background:#183d39}
 
+.pass-result{padding:12px 14px;margin-bottom:12px;border-radius:12px;border:2px solid #64bfb2;background:#143831;box-shadow:0 2px 8px #0003}
+.pass-result strong{display:block;font-size:20px;letter-spacing:.045em;color:#b5fbe3}
+.pass-result small{display:block;font-size:12px;margin-top:5px;color:#dbf5eb;line-height:1.45}
+.pass-result.result-c{border-color:#e8b250;background:#453921}.pass-result.result-c strong{color:#ffe2a1}
+.pass-result.result-d,.pass-result.result-ace{border-color:#f37b88;background:#532631}
+.pass-result.result-d strong,.pass-result.result-ace strong{color:#ffd3d9}
 </style></head>
 <body><div id="app"><main><div class="card">🏐 Conectando ao Owlbear Rodeo...</div></main></div>
 <script type="module">
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.16 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.18 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
 // A área de fora é o complemento das quadras A/B.
@@ -170,9 +176,25 @@ const dieFromResult=data=>{
  const d=used.length===1&&dice.length===1?used[0]:null;
  return Number.isInteger(d?.value)&&d.value>=1&&d.value<=20?d.value:null;
 };
-function receptionNotation(type,value){
+// ===== v0.17 — Distância de recepção: -1 por 3 metros =====
+// O teste usa o centro real dos tokens (bounds Owlbear), e não a posição
+// da quina da imagem. Diagonais contam como UMA casa: distância de Chebyshev.
+// Escala do RPG: 1 grid = 1,5 m; duas casas completas = penalidade -1.
+function receptionDistance(receiverCenter,ballCenter,gridDpi){
+ if(!receiverCenter||!ballCenter||!(gridDpi>0)||
+    ![receiverCenter.x,receiverCenter.y,ballCenter.x,ballCenter.y].every(Number.isFinite))
+   throw Error("Não foi possível medir a distância até a bola.");
+ const cells=Math.max(Math.abs(receiverCenter.x-ballCenter.x),
+                      Math.abs(receiverCenter.y-ballCenter.y))/gridDpi;
+ const meters=cells*1.5;
+ // Tolerância numérica mínima só para corrigir imprecisões de ponto flutuante.
+ const penalty=Math.floor(meters/3+1e-9);
+ return {cells,meters,penalty,modifier:-penalty};
+}
+function receptionNotation(type,value,distancePenalty=0){
  const t=SERVE_TYPES[type],base=t.advantage==="adv"?"2d20kh1":t.advantage==="dis"?"2d20kl1":"1d20";
- return `${base}${value<0?"-":"+"}${Math.abs(value)}`;
+ const modifier=value-distancePenalty;
+ return `${base}${modifier<0?"-":"+"}${Math.abs(modifier)}`;
 }
 function forcedOutside(c,dpi,sourceTeam,aimPoint){
  // Erro automático: bola sai pelo fundo do território adversário, sem presumir tamanho.
@@ -289,7 +311,7 @@ function outsideBands(box,rect){
  return rects.filter(r=>r.w>0&&r.h>0);
 }
 function pickCell(cells){const a=new Uint32Array(1);crypto.getRandomValues(a);return cells[Math.floor(a[0]/4294967296*cells.length)];}
-// ================= v0.16 · ZONAS DE QUEDA DO PASSE ================
+// ================= v0.18 · ZONAS DE QUEDA DO PASSE ================
 // Cada casa mede um grid (1,5 m); o tamanho dos times NÃO é fixo.
 function gridCentersInRect(rect,dpi){
  if(!rectValid(rect)||!(dpi>0))return [];
@@ -304,51 +326,67 @@ function gridCentersInRect(rect,dpi){
  }
  return points;
 }
+// v0.18: ZONAS CONFORME OS QUATRO RETÂNGULOS DAS IMAGENS DO MESTRE.
+// Contamos faixas PERPENDICULARES à rede, iniciando do lado da rede.
+// A: primeira faixa, apenas 3 quadrados centrais.
+// B: duas faixas seguintes, largura integral da quadra (sem a faixa da rede).
+// C: faixas do meio até a penúltima do fundo + 1 grid FORA nas laterais.
+// D: duas faixas do fundo + toda a região exterior atrás do fundo, na largura externa.
+// Tudo é calculado para o Time A ou B, na horizontal ou vertical, sem fixar dimensões.
 function passLandingCandidates(quality,c,team,dpi){
- if(!QUALITY_RULES[quality]||!isCourt(c)||!Number.isFinite(dpi)||dpi<=0)return [];
- const rect=courtRect(c,team),layout=courtLayout(c),axis=layout.axis,cross=layout.cross;
- const key=team==="allies"?"a":"b",line=c.lines?.[key];
- if(!Number.isFinite(line))return [];
+ if(!QUALITY_RULES[quality]||!isCourt(c)||!(dpi>0))return [];
+ const rect=courtRect(c,team),outer=exterior(c),layout=courtLayout(c);
+ const axis=layout.axis,cross=layout.cross;
  const first=team==="allies"?layout.aFirst:!layout.aFirst;
- const centers=gridCentersInRect(rect,dpi);
- if(!centers.length)return [];
- // Menor distância da rede = primeira fileira; maior = mais para o fundo.
- const netDistance=p=>first?rect.max[axis]-p[axis]:p[axis]-rect.min[axis];
- const sortedByNet=[...new Set(centers.map(p=>netDistance(p)))].sort((a,b)=>a-b);
- const frontRow=sortedByNet[0];
- const eps=dpi*.1;
+ const span=rect.max[axis]-rect.min[axis];
+ const lanes=Math.max(1,Math.round(span/dpi));
+ const crossCount=Math.max(1,Math.round((rect.max[cross]-rect.min[cross])/dpi));
+ const nearCenter=d=>first?rect.max[axis]-(d+.5)*dpi:rect.min[axis]+(d+.5)*dpi;
+ const point=(d,j)=>({[axis]:nearCenter(d),[cross]:rect.min[cross]+(j+.5)*dpi});
+ const valid=(p,allowOutside)=>inside(p,outer,dpi*.001)&&
+   !inside(p,courtRect(c,opposite(team)),dpi*.001)&&
+   (allowOutside||inside(p,rect,dpi*.001));
+ const results=[];
+ const seen=new Set();
+ const push=(d,j,allowOutside=false)=>{
+   const p=point(d,j),key=`${Math.round(p.x*1000)}:${Math.round(p.y*1000)}`;
+   if(!seen.has(key)&&valid(p,allowOutside)){seen.add(key);results.push(p);}
+ };
+ const across=(ds,j0,j1,allowOutside=false)=>{
+   for(const d of ds)for(let j=j0;j<=j1;j++)push(d,j,allowOutside);
+ };
  if(quality==="A"){
-   const row=centers.filter(p=>Math.abs(netDistance(p)-frontRow)<eps);
-   const middle=(rect.min[cross]+rect.max[cross])/2;
-   return row.sort((p,q)=>Math.abs(p[cross]-middle)-Math.abs(q[cross]-middle)).slice(0,3);
+   // Pegar exatamente três casas CENTRAIS rente à rede (ou as disponíveis).
+   const middle=Array.from({length:crossCount},(_,j)=>j)
+     .sort((a,b)=>Math.abs(a-(crossCount-1)/2)-Math.abs(b-(crossCount-1)/2)||a-b);
+   for(const j of middle.slice(0,3))push(0,j);
+ }else if(quality==="B"){
+   // Duas colunas logo depois daquela encostada na rede, toda a largura.
+   const ds=Array.from({length:2},(_,i)=>i+1).filter(d=>d<lanes);
+   across(ds.length?ds:[Math.max(0,lanes-1)],0,crossCount-1);
+ }else if(quality==="C"){
+   // Faixa roxa: inicia na quarta faixa (índice 3), vai até a
+   // penúltima faixa da quadra, com um grid externo em cada lateral.
+   const start=Math.min(3,Math.max(0,lanes-2));
+   const end=Math.max(start,lanes-2);
+   const ds=Array.from({length:end-start+1},(_,i)=>i+start);
+   across(ds,-1,crossCount,true);
+ }else if(quality==="D"){
+   // Retângulo ciano: últimas duas faixas de quadra e TODOS os grids
+   // da área externa atrás da linha de fundo, inclusive laterais.
+   const start=Math.max(0,lanes-2);
+   const outerDepth=first?rect.min[axis]-outer.min[axis]:outer.max[axis]-rect.max[axis];
+   const after=Math.max(0,Math.ceil(outerDepth/dpi)+1);
+   const ds=Array.from({length:lanes-start+after},(_,i)=>i+start);
+   const extendBefore=Math.max(0,Math.ceil((rect.min[cross]-outer.min[cross])/dpi)+1);
+   const extendAfter=Math.max(0,Math.ceil((outer.max[cross]-rect.max[cross])/dpi)+1);
+   across(ds,-extendBefore,crossCount-1+extendAfter,true);
  }
- if(quality==="B"){
-   // Largura inteira, do lado da frente da linha de 3m, sem a fileira rente à rede.
-   // Se a distância definida for pequena, ainda usamos a fileira restante.
-   const zone=centers.filter(p=>isInFrontOfLine(p,c,team)===true&&netDistance(p)>frontRow+eps);
-   const distances=[...new Set(zone.map(p=>netDistance(p)))].sort((a,b)=>b-a).slice(0,2);
-   return zone.filter(p=>distances.some(d=>Math.abs(d-netDistance(p))<eps));
- }
- if(quality==="C"){
-   return centers.filter(p=>isInFrontOfLine(p,c,team)===false);
- }
- if(quality==="D"){
-   // Dois cantos do fundo da quadra + 1 faixa de FORA, imediatamente
-   // atrás da linha de fundo, desde que caiba na área total marcada.
-   const maxBack=Math.max(...centers.map(p=>netDistance(p)));
-   const backRow=centers.filter(p=>Math.abs(netDistance(p)-maxBack)<eps);
-   const corners=backRow.length===1?backRow:[backRow.reduce((a,b)=>a[cross]<b[cross]?a:b),backRow.reduce((a,b)=>a[cross]>b[cross]?a:b)];
-   const outside=[];
-   for(const p of backRow){
-     const q={...p};q[axis]=first?rect.min[axis]-dpi/2:rect.max[axis]+dpi/2;
-     if(inside(q,c.areas.outer)&&!inside(q,c.areas.a)&&!inside(q,c.areas.b))outside.push(q);
-   }
-   return [...corners,...outside];
- }
- return [];
+ return results;
 }
 // ================= v0.13 · ESTADO DA BOLA E PASSE ================
 const BALL_STATE=ID+"/ball-state";
+const PASS_FLIGHT_REQUEST=ID+"/pass-flight-request", PASS_FLIGHT_FINISHED=ID+"/pass-flight-finished";
 const QUALITY_RULES={
  A:{seconds:20,penalty:0,disadvantage:false,reach:0},
  B:{seconds:10,penalty:0,disadvantage:false,reach:0},
@@ -713,6 +751,57 @@ async function startBackground(){
    // Conserva o destino final após terminar a interação.
    await OBR.scene.items.updateItems([ball.id],d=>{for(const i of d)i.position=to;});
  }
+ // A animação do Passe acontece no processo de FUNDO (como o saque),
+ // mas usa atualizações persistentes do token para todos os participantes
+ // acompanharem a trajetória, mesmo se o painel lateral for redesenhado.
+ let passFlightBusy=false;
+ async function flyPassBall(ball,destination,identity){
+   if(ball.locked)throw Error("O token da bola está bloqueado. Desbloqueie-o.");
+   const bounds=await OBR.scene.items.getItemBounds([ball.id]);
+   const fromCenter=bounds?.center||ball.position;
+   const from={...ball.position};
+   const target={x:from.x+destination.x-fromCenter.x,y:from.y+destination.y-fromCenter.y};
+   const duration=1050,steps=12;
+   for(let step=1;step<=steps;step++){
+     // Impede que o movimento de um rally antigo sobrescreva o próximo saque.
+     if(step===1||step===7){
+       const current=(await OBR.scene.getMetadata())[RALLY];
+       if(current?.serveId!==identity.serveId||current.timestamp!==identity.timestamp||current.phase!=="passe_em_voo")
+         throw Error("Rally alterado durante o movimento do Passe.");
+     }
+     const t=step/steps,e=t*t*(3-2*t);
+     await OBR.scene.items.updateItems([ball.id],draft=>{
+       for(const item of draft)item.position={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e};
+     });
+     if(step<steps)await sleep(duration/steps);
+   }
+   const finalBounds=await OBR.scene.items.getItemBounds([ball.id]);
+   const final=finalBounds?.center;
+   if(final&&Math.hypot(final.x-destination.x,final.y-destination.y)>Math.max(1,await OBR.scene.grid.getDpi()*.12))
+     throw Error("O token não chegou ao destino do Passe.");
+ }
+ OBR.broadcast.onMessage(PASS_FLIGHT_REQUEST,event=>{void(async()=>{
+   const req=event.data;
+   if(!req||req.playerId!==myPlayerId)return;
+   let result={requestId:req.requestId,playerId:req.playerId,ok:false,error:"Falha na movimentação do Passe."};
+   if(passFlightBusy){result.error="Já existe um Passe movimentando a bola.";}
+   else{
+     passFlightBusy=true;
+     try{
+       const current=(await OBR.scene.getMetadata())[RALLY];
+       if(!current||current.serveId!==req.serveId||current.timestamp!==req.timestamp||current.phase!=="passe_em_voo")
+         throw Error("Passe desatualizado; movimento cancelado.");
+       if(!current.passLanding||!Number.isFinite(current.passLanding.x)||!Number.isFinite(current.passLanding.y))
+         throw Error("Destino do Passe não foi registrado na bola.");
+       const balls=await OBR.scene.items.getItems(isBall);
+       if(balls.length!==1||balls[0].id!==current.ballId)throw Error("Não foi possível localizar a bola oficial.");
+       await flyPassBall(balls[0],current.passLanding,current);
+       result={...result,ok:true,error:null};
+     }catch(error){result.error=error.message;console.error("Haikyuu Passe em movimento",error);}
+     finally{passFlightBusy=false;}
+   }
+   await OBR.broadcast.sendMessage(PASS_FLIGHT_FINISHED,result,{destination:"ALL"});
+ })().catch(console.error);});
  async function doServe(point,meta){
    if(executing)return;executing=true;
    let completion={ok:false,error:"Saque interrompido."};
@@ -987,7 +1076,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.16</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.18</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div>
  ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
  function choose(){return `<section class="card"><p class="kicker">Token selecionado</p><h2>${escapeHTML(sheetOf(selected).name)}</h2>
@@ -1045,8 +1134,9 @@ async function startPanel(){
    const waiting=rally.receptionPending;
    return `<section class="card reception-card"><p class="kicker">Recepção do Saque</p><h2>🛡️ ${t.receive}</h2>
     <p class="small">${t.name} recebido: ${t.receptionAttr} ${t.advantage==="adv"?"com vantagem (2d20, maior)":t.advantage==="dis"?"com desvantagem (2d20, menor)":"normal (1d20)"}.</p>
+    <div class="notice" style="margin:10px 0">📏 <b>Distância automática:</b> −1 a cada 3 metros (2 casas) entre seu token e a bola; diagonais contam como uma casa. O cálculo é feito ao clicar no teste.</div>
     <button class="wide blue" data-act="receive" ${busy||waiting?"disabled":""}>${waiting?"⏳ Recepção em andamento":"🎲 Rolar recepção pelo Dice+"}</button>
-    <p class="small">O Dice+ compara os resultados. Passe A: +5; B: 0 a +4; C: −1 a −2; D: −3 a −4; Ace: −5 ou menos. Alcance de recepção: até 1,5 m, inclusive diagonal.</p></section>`;
+    <p class="small">O Dice+ compara os resultados já com a penalidade aplicada. Passe A: +5; B: 0 a +4; C: −1 a −2; D: −3 a −4; Ace: −5 ou menos. Após a rolagem, a bola é sorteada nas zonas A/B/C/D e o resultado aparece nesta ficha, sem pop-up.</p></section>`;
  }
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
@@ -1187,6 +1277,8 @@ async function startPanel(){
       ${s?.passLanding?`<div class="stat"><span>Destino do Passe ${escapeHTML(s.quality)}</span><b>${escapeHTML(s.passLandingZone||"Marcado no mapa")}</b></div>`:""}
       <div class="stat"><span>Dificuldade de recepção</span><strong style="font-size:24px">${s?.total??"—"}</strong></div>
       ${s?.reception?`<div class="stat"><span>Recepção</span><b>${escapeHTML(s.reception.receiverName||"Receptor")} · ${s.reception.total}</b></div>
+        ${Number.isFinite(s.reception.distanceMeters)?`<div class="stat"><span>Distância até a bola</span><b>${s.reception.distanceMeters.toFixed(2).replace(".",",")} m</b></div>
+        <div class="stat"><span>Penalidade de distância</span><b>−${s.reception.distancePenalty||0} (${escapeHTML(s.reception.attribute||"Passe")})</b></div>`:""}
         <div class="stat"><span>Qualidade</span><b>${s.quality==="Ace"?"Ace":"Passe "+escapeHTML(s.quality)}</b></div>`:""}
       ${s?.lifting?`<div class="stat"><span>Levantamento</span><b>${s.lifting.total} · ${escapeHTML(s.lifting.setterName)}</b></div>`:""}
       ${role==="GM"?`<button class="wide primary" data-act="${isBall(selected)?"unmark":"mark"}">${isBall(selected)?"Desmarcar bola":"🏐 Definir como bola"}</button>`:'<p class="small">Somente o mestre pode definir a bola.</p>'}
@@ -1207,7 +1299,7 @@ async function startPanel(){
  <p class="small"><b>1.</b> Área total: limite externo em vermelho.<br><b>2.</b> Time A: área válida do A (azul).<br>
  <b>3.</b> Time B: área válida do B (verde).<br><b>4.</b> Linha dos 3 m de cada time (amarela): 1 clique na posição desejada.</p>
  <p class="small">FORA = qualquer lugar que não seja território A/B. Dentro das áreas dos times, a linha amarela separa <b>ATÉ a linha dos 3 m (frente)</b> e <b>DEPOIS da linha (fundo)</b>.</p>
- <p class="small">🏐 <b>Novas regras:</b> Saque por Cima e Viagem não caem na frente da linha de 3m. Passe A: 3 casas centrais na rede; B: faixa da frente sem a primeira fileira; C: após linha de 3m; D: 2 cantos do fundo + faixa externa atrás da linha de fundo.</p>
+ <p class="small">🏐 <b>Novas regras:</b> Saque por Cima e Viagem não caem na frente da linha de 3m. Passe A: 3 casas centrais na rede; B: próximas 2 fileiras, largura total; C: faixa intermediária/fundo com 1 grid lateral externo; D: últimas 2 fileiras e toda a faixa externa atrás do fundo.</p>
  ${[["outer","Área total / Fora"],["a","Time A — dentro"],["b","Time B — dentro"],["lineA","Linha dos 3 m — A"],["lineB","Linha dos 3 m — B"]].map(([key,title])=>{
    const done=key==="lineA"?Number.isFinite(court?.lines?.a):key==="lineB"?Number.isFinite(court?.lines?.b):rectValid(court?.areas?.[key]);
    const locked=(key!=="outer"&&!rectValid(court?.areas?.outer))||(key.startsWith("line")&&!isCourt(court));
@@ -1226,7 +1318,14 @@ async function startPanel(){
    else if(view==="mestre"&&role==="GM")body=gmPanel();
    else body=`<section class="card"><h2>Selecione um token</h2><p class="small">Clique no token de personagem. A ficha abre à esquerda, sem cobrir as ferramentas à direita.</p>
      ${role==="GM"?'<button class="wide primary" data-act="master-no-token">⚙️ Abrir ficha Mestre</button>':""}</section>`;
-   app.innerHTML=header()+`<main>${message?`<div class="notice ${escapeHTML(messageType)}" role="status">${escapeHTML(message)}</div>`:""}${body}<footer>Haikyuu!! Road to the Top • Dice+</footer></main>`;
+   const result=rally?.quality&&rally?.reception;
+   const classification=result?`<section class="pass-result result-${String(rally.quality).toLowerCase()}" aria-live="polite">
+      <strong>${rally.quality==="Ace"?"🚫 ACE — PONTO DIRETO":`🏐 PASSE ${escapeHTML(rally.quality)}!`}</strong>
+      <small>${escapeHTML(rally.reception.receiverName||"Receptor")}: ${rally.reception.total} no teste contra ${rally.total} do saque.
+      ${rally.quality==="Ace"?"Rally encerrado.":rally.phase==="passe_movimento_falhou"?"Movimento pendente. Use Mover novamente.":`Destino: zona ${escapeHTML(rally.quality)}. Timer: ${QUALITY_RULES[rally.quality]?.seconds||0} segundos (mestre controla).`}</small>
+     </section>`:"";
+   const retry=rally?.phase==="passe_movimento_falhou"?`<button class="wide" data-act="retry-pass-move" style="margin-bottom:12px">🔁 Mover bola novamente para a zona ${escapeHTML(rally.quality)}</button>`:"";
+   app.innerHTML=header()+`<main>${message?`<div class="notice ${escapeHTML(messageType)}" role="status">${escapeHTML(message)}</div>`:""}${classification}${retry}${body}<footer>Haikyuu!! Road to the Top • Dice+</footer></main>`;
  }
  async function selectedChanged(ids){const id=ids?.length===1?ids[0]:null,serial=++selectSerial;
    if(id!==selectedId){
@@ -1388,28 +1487,47 @@ async function startPanel(){
      OBR.broadcast.sendMessage(`${ID}/auto-fault`,payload,{destination:"ALL"}).catch(done);
    });
  }
-  async function animatePassBall(ball,landing){
-    if(ball.locked)throw Error("Desbloqueie o token da bola para a animação do Passe.");
-    const bounds=await OBR.scene.items.getItemBounds([ball.id]);
-    const center=bounds?.center||ball.position,from={...ball.position};
-    const to={x:from.x+landing.x-center.x,y:from.y+landing.y-center.y};
-    let update=null,stop=null;
+  // Envia a movimentação ao processo de fundo, para funcionar mesmo
+  // quando o usuário estiver com a ficha lateral aberta.
+  async function animatePassBall(ball,landing,identity){
+    const playerId=await OBR.player.getId(),requestId=newId();
+    let animationError=null;
     try{
-      [update,stop]=await OBR.interaction.startItemInteraction(ball);
-      const begin=performance.now(),duration=1000;
-      while(true){
-        const t=Math.min(1,(performance.now()-begin)/duration);
-        // A bola sobe e descreve um movimento suave para o local do Passe.
-        const eased=t*t*(3-2*t);
-        update(d=>{d.position={x:from.x+(to.x-from.x)*eased,y:from.y+(to.y-from.y)*eased};});
-        if(t>=1)break;
-        await sleep(32);
+      await new Promise((resolve,reject)=>{
+        let settled=false;
+        const complete=(error)=>{
+          if(settled)return;settled=true;clearTimeout(timeout);unsubscribe();
+          error?reject(error):resolve();
+        };
+        const unsubscribe=OBR.broadcast.onMessage(PASS_FLIGHT_FINISHED,e=>{
+          if(e.data?.requestId!==requestId||e.data?.playerId!==playerId)return;
+          complete(e.data.ok?null:Error(e.data.error||"O movimento da bola falhou."));
+        });
+        const timeout=setTimeout(()=>complete(Error("Tempo esgotado ao aguardar a animação do Passe.")),16000);
+        OBR.broadcast.sendMessage(PASS_FLIGHT_REQUEST,{
+          requestId,playerId,serveId:identity.serveId,timestamp:identity.timestamp
+        },{destination:"ALL"}).catch(complete);
+      });
+    }catch(e){animationError=e;console.warn("Haikyuu animação do Passe",e);}
+    // Segurança: se a animação for interrompida, pelo menos posicionar
+    // a bola exatamente no centro da casa sorteada. Nunca ignorar a falha.
+    if(animationError){
+      try{
+        const latest=(await OBR.scene.getMetadata())[RALLY];
+        if(latest?.serveId!==identity.serveId||latest?.timestamp!==identity.timestamp)
+          throw Error("Um novo rally começou; não será alterada a bola antiga.");
+        const [fresh]=await OBR.scene.items.getItems([ball.id]);
+        if(!fresh||fresh.locked)throw Error("O token da bola está bloqueado ou não existe.");
+        const bounds=await OBR.scene.items.getItemBounds([ball.id]);
+        const center=bounds?.center||fresh.position;
+        const dest={x:fresh.position.x+landing.x-center.x,y:fresh.position.y+landing.y-center.y};
+        await OBR.scene.items.updateItems([ball.id],draft=>{for(const item of draft)item.position=dest;});
+        return {animated:false,reason:animationError.message};
+      }catch(error){
+        throw Error(`Não foi possível mover a bola: ${error.message}. Desbloqueie a bola e use "Mover novamente" na ficha.`);
       }
-    }catch(error){
-      console.warn("Haikyuu: animação do Passe indisponível; salvando posição final.",error);
-    }finally{if(stop)await stop().catch(console.warn);}
-    // Mesmo se a animação não puder ser mostrada, preservamos o destino salvo.
-    await OBR.scene.items.updateItems([ball.id],draft=>{for(const item of draft)item.position={...to};});
+    }
+    return {animated:true};
   }
   async function receiveServe(){
     const meta=await OBR.scene.getMetadata(),current=meta[RALLY];
@@ -1427,13 +1545,15 @@ async function startPanel(){
     if(!center||!ballCenter)throw Error("Não foi possível localizar os tokens na grade.");
     if(teamOfPosition(center,court)!==current.recipientTeam)throw Error("O recebedor deve ser da equipe que recebeu o saque.");
     const dpi=await OBR.scene.grid.getDpi();
-    if(Math.abs(center.x-ballCenter.x)>dpi*1.02||Math.abs(center.y-ballCenter.y)>dpi*1.02)
-      throw Error("A bola precisa estar a até 1,5 m do receptor (inclusive diagonais).");
+    const distance=receptionDistance(center,ballCenter,dpi);
     const s=currentSheet(),t=SERVE_TYPES[current.type];
-    const notation=receptionNotation(current.type,s.attributes[t.receptionAttr]);
+    const baseAttribute=s.attributes[t.receptionAttr];
+    // A vantagem do Por Baixo, a desvantagem do Flutuante e o uso de
+    // Defesa contra o Viagem são preservados; muda só o modificador.
+    const notation=receptionNotation(current.type,baseAttribute,distance.penalty);
     await commitRally({...current,receptionPending:true,receiverId});
     try{
-      status(`🛡️ ${t.receive}: rolando ${notation} no Dice+…`);
+      status(`📏 ${t.receptionAttr} de ${s.name}: ${distance.meters.toFixed(2).replace(".",",")} m da bola; penalidade −${distance.penalty}. 🎲 ${notation} no Dice+…`);
       const rolled=await requestDice(notation,`${t.receptionAttr} de ${s.name}`);
       const latest=(await OBR.scene.getMetadata())[RALLY];
       if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp)
@@ -1443,7 +1563,10 @@ async function startPanel(){
       const difference=rolled.total-current.total;
       const quality=classifyReception(difference),ace=quality==="Ace";
       const reception={receiverId,receiverName:s.name,attribute:t.receptionAttr,
-        total:rolled.total,natural:rolled.natural,notation,difference,quality,at:Date.now()};
+        total:rolled.total,natural:rolled.natural,notation,difference,quality,
+        attributeBase:baseAttribute,effectiveModifier:baseAttribute-distance.penalty,
+        distanceMeters:distance.meters,distanceCells:distance.cells,
+        distancePenalty:distance.penalty,at:Date.now()};
       let destination=null;
       if(!ace){
         const candidates=passLandingCandidates(quality,court,current.recipientTeam,dpi);
@@ -1458,19 +1581,49 @@ async function startPanel(){
       if(!ace){
         // Movimento do token após classificar A, B, C ou D.
         // O timer continua parado; Play só pode ser dado depois do Passe.
-        await animatePassBall(balls[0],destination);
+        let flight;
+        try{flight=await animatePassBall(balls[0],destination,next);}
+        catch(error){
+          const failed=(await OBR.scene.getMetadata())[RALLY];
+          if(failed?.serveId===current.serveId&&failed?.timestamp===current.timestamp)
+            await commitRally({...failed,receptionPending:false,phase:"passe_movimento_falhou"});
+          status(`🏐 PASSE ${quality}! Resultado ${rolled.total} contra ${latest.total}. ⚠️ Bola não se moveu: ${error.message}`,"warn");
+          return;
+        }
         const afterFlight=(await OBR.scene.getMetadata())[RALLY];
         if(afterFlight?.serveId===current.serveId&&afterFlight?.timestamp===current.timestamp&&afterFlight.phase==="passe_em_voo"){
-          await commitRally({...afterFlight,receptionPending:false,phase:"aguardando_levantador"});
+          await commitRally({...afterFlight,receptionPending:false,phase:"aguardando_levantador",flightAnimated:flight.animated});
         }
       }
-      status(ace?`🚫 Ace! Saque ${latest.total} vs ${t.receptionAttr} ${rolled.total} (margem ${difference}). Ponto da equipe sacadora.`:
-        `✅ Passe ${quality}! Bola enviada para ${courtZone(destination,court)}. Timer ${QUALITY_RULES[quality].seconds}s aguardando o mestre.`,ace?"warn":"ok");
+      const distanceInfo=`${distance.meters.toFixed(2).replace(".",",")} m; penalidade −${distance.penalty}`;
+      status(ace?`🚫 ACE! ${t.receptionAttr} de ${s.name}: ${distanceInfo}. Saque ${latest.total} × Recepção ${rolled.total}. Ponto do sacador.`:
+        `🏐 PASSE ${quality}! ${t.receptionAttr} de ${s.name}: ${rolled.total} × Saque ${latest.total}. ${distanceInfo}. A bola foi para a zona ${quality}. Timer ${QUALITY_RULES[quality].seconds}s; mestre dá Play.`,ace?"warn":"ok");
     }catch(e){
       const latest=(await OBR.scene.getMetadata())[RALLY];
       if(latest?.timestamp===current.timestamp&&latest.receptionPending)
         await commitRally({...latest,receptionPending:false}).catch(console.warn);
       throw e;
+    }
+  }
+  async function retryPassMovement(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(current?.phase!=="passe_movimento_falhou"||!current.passLanding)
+      throw Error("Não existe um Passe com movimento pendente.");
+    const balls=await OBR.scene.items.getItems(isBall);
+    if(balls.length!==1)throw Error("Defina uma bola oficial em Montarias.");
+    const working={...current,receptionPending:true,phase:"passe_em_voo"};
+    await commitRally(working);
+    try{
+      const outcome=await animatePassBall(balls[0],current.passLanding,working);
+      const updated=(await OBR.scene.getMetadata())[RALLY];
+      if(updated?.serveId===current.serveId&&updated?.timestamp===current.timestamp)
+        await commitRally({...updated,receptionPending:false,phase:"aguardando_levantador",flightAnimated:outcome.animated});
+      status(`🏐 PASSE ${current.quality}! Bola colocada na zona ${current.quality}.`);
+    }catch(error){
+      const updated=(await OBR.scene.getMetadata())[RALLY];
+      if(updated?.serveId===current.serveId&&updated?.timestamp===current.timestamp)
+        await commitRally({...updated,receptionPending:false,phase:"passe_movimento_falhou"});
+      throw error;
     }
   }
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
@@ -1553,6 +1706,7 @@ async function startPanel(){
          await OBR.scene.setMetadata({[COURT]:null});status("Marcações da quadra apagadas. Refaça as áreas.");break;
        }
         case "receive":await receiveServe();break;
+       case "retry-pass-move":await retryPassMovement();break;
         case "choose-setter":await chooseSetter();break;
         case "test-reach":await reachTest();break;
         case "timer-play":await controlTimer("play");break;
@@ -1655,7 +1809,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.16</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.18</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
