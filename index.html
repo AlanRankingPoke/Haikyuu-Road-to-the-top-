@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.23</title>
+<title>Haikyuu!! Road to the Top — 0.25</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -73,7 +73,7 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 .gm-restart{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
 .gm-restart button{font-size:12px;padding:10px 6px}
 
-/* v0.23 — Abas da ficha preservadas: status e saque/recepção. */
+/* v0.25 — Abas da ficha preservadas: status e saque/recepção. */
 .game-tabs{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0 0 12px}
 .game-tabs button{padding:11px 7px;font-size:12px;background:#273c54;color:#cbd8e9;border:1px solid #48627c;border-radius:9px;min-width:0;line-height:1.25}
 .game-tabs button[aria-selected="true"]{background:#f4ad4c;color:#1b2a3d;border-color:#ffd18c;font-weight:900}
@@ -85,7 +85,7 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.23 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.25 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
 // A área de fora é o complemento das quadras A/B.
@@ -426,14 +426,13 @@ function passLandingCandidates(quality,c,team,dpi){
 }
 // ================= v0.13 · ESTADO DA BOLA E PASSE ================
 const BALL_STATE=ID+"/ball-state";
-const PASS_FLIGHT_REQUEST=ID+"/pass-flight-request", PASS_FLIGHT_FINISHED=ID+"/pass-flight-finished";
 const QUALITY_RULES={
  A:{seconds:20,penalty:0,disadvantage:false,reach:0},
  B:{seconds:10,penalty:0,disadvantage:false,reach:0},
  C:{seconds:5,penalty:-1,disadvantage:false,reach:6},
  D:{seconds:5,penalty:0,disadvantage:true,reach:16}
 };
-// v0.23 — Nova qualidade da recepção (resultado final de Passe/Defesa menos Saque).
+// v0.25 — Nova qualidade da recepção (resultado final de Passe/Defesa menos Saque).
 // A: +3 ou mais | B: -1 a +2 | C: -3 a -2 | D: -5 a -4 | Ace: -6 ou menos.
 // A penalidade de distância (-1 a cada 3 m) já faz parte do total do Dice+.
 function classifyReception(diff){
@@ -794,111 +793,9 @@ async function startBackground(){
    // Conserva o destino final após terminar a interação.
    await OBR.scene.items.updateItems([ball.id],d=>{for(const i of d)i.position=to;});
  }
- // A animação do Passe acontece no processo de FUNDO (como o saque),
- // mas usa atualizações persistentes para todos os participantes.
- // Fluxo: receptor chega à casa da bola, depois a bola é levantada.
- let passFlightBusy=false;
- function assertSamePass(current,identity){
-   if(current?.serveId!==identity.serveId || current?.timestamp!==identity.timestamp ||
-       current?.phase!=="passe_em_voo" || current?.receiverId!==identity.receiverId)
-     throw Error("A jogada foi alterada enquanto o Passe estava em movimento.");
- }
- async function progressPass(identity,step){
-   const meta=await OBR.scene.getMetadata();
-   assertSamePass(meta[RALLY],identity);
-   await OBR.scene.setMetadata({[RALLY]:{...meta[RALLY],passMoveStage:step}});
- }
- async function flyPassReceiver(receiver,contactCenter,identity){
-   if(receiver.locked)throw Error("O personagem está bloqueado. Desbloqueie o token para fazer a recepção.");
-   if(!contactCenter||![contactCenter.x,contactCenter.y].every(Number.isFinite))
-     throw Error("Não foi possível identificar a casa da bola antes do Passe.");
-   const bounds=await OBR.scene.items.getItemBounds([receiver.id]);
-   const fromCenter=bounds?.center||receiver.position,from={...receiver.position};
-   const target={x:from.x+contactCenter.x-fromCenter.x,y:from.y+contactCenter.y-fromCenter.y};
-   const steps=10,duration=850;
-   if(Math.hypot(fromCenter.x-contactCenter.x,fromCenter.y-contactCenter.y)>1){
-     for(let step=1;step<=steps;step++){
-       if(step===1||step===6)assertSamePass((await OBR.scene.getMetadata())[RALLY],identity);
-       const t=step/steps,e=t*t*(3-2*t);
-       await OBR.scene.items.updateItems([receiver.id],draft=>{
-         for(const item of draft)item.position={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e};
-       });
-       if(step<steps)await sleep(duration/steps);
-     }
-   }
-   const final=await OBR.scene.items.getItemBounds([receiver.id]);
-   if(final?.center&&Math.hypot(final.center.x-contactCenter.x,final.center.y-contactCenter.y)>
-      Math.max(1,(await OBR.scene.grid.getDpi())*.12))
-     throw Error("O receptor não chegou à casa onde estava a bola.");
- }
- async function flyPassBall(ball,destination,identity){
-   if(ball.locked)throw Error("O token da bola está bloqueado. Desbloqueie-o.");
-   if(!destination||![destination.x,destination.y].every(Number.isFinite))
-     throw Error("Destino de Passe inválido.");
-   // Mesma animação por interação que funciona no SAQUE. Antes a bola
-   // usava uma sequência de updateItems distinta, sujeita a falhas.
-   const current=(await OBR.scene.getMetadata())[RALLY];
-   assertSamePass(current,identity);
-   let flightError=null;
-   try{await animate(ball,destination);}catch(e){
-     flightError=e;console.warn("Haikyuu voo do Passe: tentando posição final",e);
-   }
-   // O centro do token pode diferir da sua âncora/position: converter
-   // corretamente antes de gravar o destino persistente.
-   const [fresh]=await OBR.scene.items.getItems([ball.id]);
-   if(!fresh)throw Error("O token da bola desapareceu durante o Passe.");
-   const bounds=await OBR.scene.items.getItemBounds([ball.id]);
-   const center=bounds?.center||fresh.position;
-   const dpi=await OBR.scene.grid.getDpi();
-   if(Math.hypot(center.x-destination.x,center.y-destination.y)>Math.max(1,dpi*.12)){
-     const corrected={x:fresh.position.x+destination.x-center.x,
-                      y:fresh.position.y+destination.y-center.y};
-     await OBR.scene.items.updateItems([ball.id],draft=>{
-       for(const i of draft)i.position=corrected;
-     });
-     const verified=await OBR.scene.items.getItemBounds([ball.id]);
-     const p=verified?.center;
-     if(p && Math.hypot(p.x-destination.x,p.y-destination.y)>Math.max(1,dpi*.15))
-       throw Error(`A bola não chegou à casa sorteada.${flightError?" "+flightError.message:""}`);
-   }
- }
- OBR.broadcast.onMessage(PASS_FLIGHT_REQUEST,event=>{void(async()=>{
-   const req=event.data;
-   if(!req||req.playerId!==myPlayerId)return;
-   let result={requestId:req.requestId,playerId:req.playerId,ok:false,error:"Falha na movimentação do Passe."};
-   if(passFlightBusy){result.error="Já existe um Passe movimentando a bola.";}
-   else{
-     passFlightBusy=true;
-     try{
-       const current=(await OBR.scene.getMetadata())[RALLY];
-       if(!current||current.serveId!==req.serveId||current.timestamp!==req.timestamp||current.phase!=="passe_em_voo")
-         throw Error("Passe desatualizado; movimento cancelado.");
-       if(!current.passLanding||!Number.isFinite(current.passLanding.x)||!Number.isFinite(current.passLanding.y))
-         throw Error("Destino do Passe não foi registrado na bola.");
-       const balls=await OBR.scene.items.getItems(isBall);
-       if(balls.length!==1||balls[0].id!==current.ballId)throw Error("Não foi possível localizar a bola oficial.");
-       const [receiver]=await OBR.scene.items.getItems([current.receiverId]);
-       if(!isCharacter(receiver))throw Error("O token do receptor não foi encontrado.");
-       const contact=current.reception?.ballContact;
-       if(!contact)throw Error("Faltou registrar a casa original da bola na recepção.");
-       // Um retry após a chegada do receptor só repete o voo da bola.
-       if(!current.receiverReachedBall){
-         await progressPass(current,"receptor");
-         await flyPassReceiver(receiver,contact,current);
-         await progressPass(current,"bola");
-         // Salva que o receptor chegou mesmo se a bola falhar durante o voo.
-         const meta=(await OBR.scene.getMetadata())[RALLY];
-         assertSamePass(meta,current);
-         await OBR.scene.setMetadata({[RALLY]:{...meta,receiverReachedBall:true,passMoveStage:"bola"}});
-       }else await progressPass(current,"bola");
-       await sleep(160); // Dá um instante visual de contato antes do Passe.
-       await flyPassBall(balls[0],current.passLanding,current);
-       result={...result,ok:true,error:null,receiverReachedBall:true};
-     }catch(error){result.error=error.message;console.error("Haikyuu Passe em movimento",error);}
-     finally{passFlightBusy=false;}
-   }
-   await OBR.broadcast.sendMessage(PASS_FLIGHT_FINISHED,result,{destination:"ALL"});
- })().catch(console.error);});
+ // v0.25: animação do Passe fica inteiramente na própria ação de recepção.
+ // Não depende mais de broadcast para um segundo processo ou de modo de ferramenta.
+ // O saque continua com sua animação independente no processo de fundo.
  async function doServe(point,meta){
    if(executing)return;executing=true;
    let completion={ok:false,error:"Saque interrompido."};
@@ -1174,7 +1071,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.23</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.25</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div></header>`;}
  function choose(){
  if(selected?.metadata?.[SHEET]?.kind==="mestre"&&role!=="GM")
@@ -1612,51 +1509,97 @@ async function startPanel(){
      OBR.broadcast.sendMessage(`${ID}/auto-fault`,payload,{destination:"ALL"}).catch(done);
    });
  }
-  // Envia a movimentação ao processo de fundo, para funcionar mesmo
-  // quando o usuário estiver com a ficha lateral aberta.
-  async function animatePassBall(ball,landing,identity){
-    const playerId=await OBR.player.getId(),requestId=newId();
-    let animationError=null;
-    try{
-      await new Promise((resolve,reject)=>{
-        let settled=false;
-        const complete=(error)=>{
-          if(settled)return;settled=true;clearTimeout(timeout);unsubscribe();
-          error?reject(error):resolve();
-        };
-        const unsubscribe=OBR.broadcast.onMessage(PASS_FLIGHT_FINISHED,e=>{
-          if(e.data?.requestId!==requestId||e.data?.playerId!==playerId)return;
-          complete(e.data.ok?null:Error(e.data.error||"O movimento da bola falhou."));
-        });
-        const timeout=setTimeout(()=>complete(Error("Tempo esgotado ao aguardar a animação do Passe.")),16000);
-        OBR.broadcast.sendMessage(PASS_FLIGHT_REQUEST,{
-          requestId,playerId,serveId:identity.serveId,timestamp:identity.timestamp
-        },{destination:"ALL"}).catch(complete);
-      });
-    }catch(e){animationError=e;console.warn("Haikyuu animação do Passe",e);}
-    // Segurança: se a animação for interrompida, pelo menos posicionar
-    // a bola exatamente no centro da casa sorteada. Nunca ignorar a falha.
-    if(animationError){
+  // v0.25 — Passe/Defesa: receptor e bola são movidos NA MESMA janela
+  // que executa o teste no Dice+. A versão anterior dependia de um evento
+  // broadcast recebido por outro processo; o evento podia não chegar e
+  // o personagem se movia, mas a bola permanecia na casa inicial.
+  // Aqui há apenas uma sequência e um destino persistido para cada token.
+  let passMovementActive=false;
+  async function assertPassIsCurrent(identity){
+    const now=(await OBR.scene.getMetadata())[RALLY];
+    if(!now||now.serveId!==identity.serveId||now.timestamp!==identity.timestamp||
+       now.receiverId!==identity.receiverId||now.phase!=="passe_em_voo")
+      throw Error("O rally mudou durante o movimento. A animação foi interrompida para proteger a partida.");
+    return now;
+  }
+  // Move o token pelo CENTRO, mas atualiza a âncora original do item.
+  // A posição final é aplicada e verificada independentemente da animação.
+  async function moveTokenToCenter(tokenId,targetCenter,identity,stepName){
+    if(!targetCenter||![targetCenter.x,targetCenter.y].every(Number.isFinite))
+      throw Error(`Destino inválido para ${stepName}.`);
+    await assertPassIsCurrent(identity);
+    const [token]=await OBR.scene.items.getItems([tokenId]);
+    if(!token)throw Error(`Token de ${stepName} não encontrado.`);
+    if(token.locked)throw Error(`O token de ${stepName} está bloqueado no Owlbear. Desbloqueie-o.`);
+    const bounds=await OBR.scene.items.getItemBounds([tokenId]);
+    const center=bounds?.center||token.position;
+    if(!center||![center.x,center.y].every(Number.isFinite))
+      throw Error(`Não foi possível encontrar o centro do token de ${stepName}.`);
+    const from={x:token.position.x,y:token.position.y};
+    // Calcula UMA VEZ: a animação não depende de bounds intermediários atrasados.
+    const to={x:from.x+targetCenter.x-center.x,y:from.y+targetCenter.y-center.y};
+    const delta=Math.hypot(to.x-from.x,to.y-from.y);
+    const dpi=await OBR.scene.grid.getDpi();
+    let animated=delta<=Math.max(1,dpi*.03),animationIssue=null;
+    if(!animated){
+      const frames=10,frameWait=65;
       try{
-        const latest=(await OBR.scene.getMetadata())[RALLY];
-        // Não pular a movimentação do receptor em caso de erro. Nesse caso
-        // o botão de tentar novamente recupera a sequência inteira.
-        if(!latest?.receiverReachedBall)
-          throw Error(`O receptor não chegou à bola: ${animationError.message}`);
-        if(latest?.serveId!==identity.serveId||latest?.timestamp!==identity.timestamp)
-          throw Error("Um novo rally começou; não será alterada a bola antiga.");
-        const [fresh]=await OBR.scene.items.getItems([ball.id]);
-        if(!fresh||fresh.locked)throw Error("O token da bola está bloqueado ou não existe.");
-        const bounds=await OBR.scene.items.getItemBounds([ball.id]);
-        const center=bounds?.center||fresh.position;
-        const dest={x:fresh.position.x+landing.x-center.x,y:fresh.position.y+landing.y-center.y};
-        await OBR.scene.items.updateItems([ball.id],draft=>{for(const item of draft)item.position=dest;});
-        return {animated:false,reason:animationError.message};
+        for(let i=1;i<=frames;i++){
+          if(i===1||i===6||i===frames)await assertPassIsCurrent(identity);
+          const t=i/frames,e=t*t*(3-2*t);
+          const pos={x:from.x+(to.x-from.x)*e,y:from.y+(to.y-from.y)*e};
+          await OBR.scene.items.updateItems([tokenId],draft=>{
+            for(const item of draft)item.position=pos;
+          });
+          if(i<frames)await sleep(frameWait);
+        }
+        animated=true;
       }catch(error){
-        throw Error(`Não foi possível mover a bola: ${error.message}. Desbloqueie a bola e use "Mover novamente" na ficha.`);
+        animationIssue=error;
+        console.warn(`Haikyuu — animacao de ${stepName} interrompida; tentando posicao final`,error);
       }
     }
-    return {animated:true};
+    // Mesmo se uma atualização intermediária falhar, tenta gravar o destino.
+    // Não anuncia sucesso até ter confirmado o posicionamento persistente.
+    let lastError=null;
+    for(let attempt=0;attempt<3;attempt++){
+      await assertPassIsCurrent(identity);
+      try{
+        await OBR.scene.items.updateItems([tokenId],draft=>{
+          for(const item of draft){
+            if(item.locked)throw Error("O token foi bloqueado durante o movimento.");
+            item.position={...to};
+          }
+        });
+        const [saved]=await OBR.scene.items.getItems([tokenId]);
+        if(saved&&Math.hypot(saved.position.x-to.x,saved.position.y-to.y)<=Math.max(.75,dpi*.03))
+          return {animated,position:{...to},fallback:!!animationIssue};
+        lastError=Error(`O Owlbear não confirmou o deslocamento de ${stepName}.`);
+      }catch(error){lastError=error;}
+      if(attempt<2)await sleep(130);
+    }
+    throw Error(`Não foi possível posicionar ${stepName}: ${lastError?.message||"erro desconhecido"}.`);
+  }
+  async function animatePassBall(ball,landing,identity){
+    if(passMovementActive)throw Error("Já existe uma recepção em movimento nesta ficha.");
+    passMovementActive=true;
+    try{
+      let current=await assertPassIsCurrent(identity);
+      if(!current.passLanding||!landing)throw Error("Faltou o destino sorteado da bola.");
+      if(!current.receiverReachedBall){
+        const contact=current.reception?.ballContact;
+        if(!contact)throw Error("Não foi salva a posição original da bola.");
+        await moveTokenToCenter(identity.receiverId,contact,identity,"receptor");
+        current=await assertPassIsCurrent(identity);
+        // Persistir o avanço ANTES de tentar a bola, permitindo repetir apenas
+        // a segunda etapa caso ela apresente alguma falha.
+        await commitRally({...current,receiverReachedBall:true,passMoveStage:"bola"});
+      }
+      await sleep(140); // Pequena pausa visual do momento do contato.
+      await assertPassIsCurrent(identity);
+      const moved=await moveTokenToCenter(ball.id,landing,identity,"bola");
+      return {animated:moved.animated,fallback:moved.fallback};
+    }finally{passMovementActive=false;}
   }
   async function receiveServe(){
     const meta=await OBR.scene.getMetadata(),current=meta[RALLY];
@@ -2006,7 +1949,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.23</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.25</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
