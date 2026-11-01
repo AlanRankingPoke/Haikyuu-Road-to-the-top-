@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.20.0",
+  "version": "0.23.0",
   "manifest_version": 1,
-  "description": "Passe e Defesa mostram a penalidade; receptor alcanca a bola antes dela voar. Fichas diretas e timer.",
+  "description": "Ficha em abas, saques e recepção com animação, reset de Rally/Set, cronômetro em segundos e placar manual.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
