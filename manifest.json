@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.21.0",
+  "version": "0.23.0",
   "manifest_version": 1,
-  "description": "Passe movimenta receptor e bola; ficha compacta em 2 colunas; resets de saque e set exclusivos do mestre.",
+  "description": "Nova tabela de recepcao: A +3, B +2 a -1, C -2 a -3, D -4 a -5, Ace -6; distancia -1/3m.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
