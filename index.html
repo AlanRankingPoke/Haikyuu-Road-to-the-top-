@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.20</title>
+<title>Haikyuu!! Road to the Top — 0.23</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -58,13 +58,34 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 .pass-result.result-c{border-color:#e8b250;background:#453921}.pass-result.result-c strong{color:#ffe2a1}
 .pass-result.result-d,.pass-result.result-ace{border-color:#f37b88;background:#532631}
 .pass-result.result-d strong,.pass-result.result-ace strong{color:#ffd3d9}
+
+/* Haikyuu!! 0.21 — Abas da ficha / tipos de saque expansíveis */
+.sheet-tabs{position:sticky;top:64px;z-index:4;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:9px 0 13px;background:#141b28}
+.sheet-tabs button{padding:13px 7px;border-radius:10px;background:#27364a;border:1px solid #4c6079;color:#d4e3f2;font-size:13px;font-weight:850}
+.sheet-tabs button.active{background:#fcb04b;border-color:#ffd08c;color:#222b39;box-shadow:0 2px 10px #0003}
+.serve-accordion{display:flex;align-items:center;justify-content:space-between;text-align:left;gap:10px;width:100%;background:#284d60;border-color:#65a7c6;padding:14px;color:#f3fcff}
+.serve-accordion .chevron{font-size:19px;font-weight:900;line-height:1}
+.serve-picker{display:grid;gap:7px;margin:12px 0}
+.serve-pick{display:flex;justify-content:space-between;align-items:center;text-align:left;gap:10px;padding:11px;background:#172c3b;border:1px solid #426f87;font-size:13px}
+.serve-pick.active{background:#2b5670;border-color:#fcb04b;color:#ffe0ac}
+.serve-detail{border:1px solid #6c8da0;background:#1a3040;border-radius:10px;padding:13px;margin:12px 0}
+.serve-detail strong{font-size:15px;color:#ffe1ae}
+.serve-detail p{margin:8px 0;line-height:1.5}
+.serve-detail .stat{font-size:12px}
+.serve-detail .primary{margin-top:12px}
+
+/* Haikyuu!! 0.23 — controles de teste e HUD */
+.test-tools{background:#292c39;border-color:#b49158}
+.test-tools .buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.test-tools button{font-size:12px;line-height:1.3;padding:10px 6px}
+.test-tools p{font-size:11px;color:#c6d6e5}
 </style></head>
 <body><div id="app"><main><div class="card">🏐 Conectando ao Owlbear Rodeo...</div></main></div>
 <script type="module">
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.20 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.23 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
 // A área de fora é o complemento das quadras A/B.
@@ -72,7 +93,7 @@ import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 // ================================================================
 const ID="br.com.haikyuu.rtt"; // Mantém compatibilidade com fichas anteriores
 const SHEET=ID+"/sheet", BALL=ID+"/ball", COURT=ID+"/court", LOCK=ID+"/serve-lock";
-const RALLY=ID+"/rally", SCORE=ID+"/score";
+const RALLY=ID+"/rally", SCORE=ID+"/score", HUD_TIME=ID+"/hud-time";
 // Cada área sorteia uniformemente UM dos centros de célula que a compõem.
 // Baixo conserva a mira original de 1,5 × 1,5 m sobre o cruzamento de 4 casas.
 // Cima: 2 × 3 casas; Flutuante: 2 × 3 + 2 laterais centrais;
@@ -116,6 +137,7 @@ const CAL_TASKS={
 };
 const PANEL_ID=ID+"/left-sheet";
 const background=new URLSearchParams(location.search).has("background");
+const overlay=new URLSearchParams(location.search).has("overlay");
 const app=document.querySelector("#app");
 const escapeHTML=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Dice+ supports descriptive roll labels following the entire formula (# text).
@@ -176,10 +198,10 @@ const dieFromResult=data=>{
  const d=used.length===1&&dice.length===1?used[0]:null;
  return Number.isInteger(d?.value)&&d.value>=1&&d.value<=20?d.value:null;
 };
-// ===== v0.17 — Distância de recepção: -1 por 3 metros =====
+// ===== v0.23 — Distância de recepção: -2 por 1,5 metro =====
 // O teste usa o centro real dos tokens (bounds Owlbear), e não a posição
 // da quina da imagem. Diagonais contam como UMA casa: distância de Chebyshev.
-// Escala do RPG: 1 grid = 1,5 m; duas casas completas = penalidade -1.
+// Escala do RPG: 1 grid = 1,5 m; uma casa completa = penalidade -2.
 function receptionDistance(receiverCenter,ballCenter,gridDpi){
  if(!receiverCenter||!ballCenter||!(gridDpi>0)||
     ![receiverCenter.x,receiverCenter.y,ballCenter.x,ballCenter.y].every(Number.isFinite))
@@ -188,7 +210,7 @@ function receptionDistance(receiverCenter,ballCenter,gridDpi){
                       Math.abs(receiverCenter.y-ballCenter.y))/gridDpi;
  const meters=cells*1.5;
  // Tolerância numérica mínima só para corrigir imprecisões de ponto flutuante.
- const penalty=Math.floor(meters/3+1e-9);
+ const penalty=Math.floor(meters/1.5+1e-9)*2;
  return {cells,meters,penalty,modifier:-penalty};
 }
 function receptionNotation(type,value,distancePenalty=0){
@@ -232,7 +254,7 @@ function sheetOf(item){const s=item?.metadata?.[SHEET]||{};
  creationBonus:Object.fromEntries(ATTRS.map(a=>[a,clamp(Math.trunc(finite(s.creationBonus?.[a])),0,INITIAL_ATTRIBUTE_CAP)])),
  attributes:Object.fromEntries(ATTRS.map(a=>[a,clamp(Math.trunc(finite(s.attributes?.[a])),-9999,9999)]))
 };}
-// v0.20: tipo de ficha salvo individualmente no token.
+// v0.23: tipo de ficha salvo individualmente no token.
 // Fichas antigas criadas continuam entrando direto na Ficha Jogador.
 // Quem não tiver classificação ainda vê a escolha apenas na primeira vez.
 function rememberedViewFor(item,role){
@@ -399,6 +421,69 @@ function passLandingCandidates(quality,c,team,dpi){
  }
  return results;
 }
+
+// v0.23: Passe A chega exatamente às mãos do levantador.
+// Passe B fica próximo ao levantador; C e D preservam as zonas difíceis.
+async function pickPassDestination(quality,c,team,dpi){
+  const candidates=passLandingCandidates(quality,c,team,dpi);
+  if(!candidates.length)throw Error("Não há casas válidas para esse Passe. Confira a quadra e as linhas de 3 m.");
+  const courtSide=courtRect(c,team);
+  const players=(await OBR.scene.items.getItems()).filter(i=>
+    isCharacter(i)&&sheetOf(i).position==="Levantador");
+  for(const setter of players){
+    const bounds=await OBR.scene.items.getItemBounds([setter.id]);
+    const center=bounds?.center||setter.position;
+    if(!center||!inside(center,courtSide,dpi*.001))continue;
+    if(teamOfPosition(center,c)!==team)continue;
+    if(quality==="A")return {destination:{x:center.x,y:center.y},setter};
+    if(quality==="B"){
+      const near=[];
+      for(const dx of [-1,0,1])for(const dy of [-1,0,1]){
+        if(dx===0&&dy===0)continue;
+        const point={x:center.x+dx*dpi,y:center.y+dy*dpi};
+        if(inside(point,courtSide,dpi*.001))near.push(point);
+      }
+      return {destination:near.length?pickCell(near):{x:center.x,y:center.y},setter};
+    }
+    return {destination:pickCell(candidates),setter};
+  }
+  // Sem levantador registrado, conserva as zonas anteriores.
+  return {destination:pickCell(candidates),setter:null};
+}
+
+// Confirma a chegada da bola. Se a animação terminar antes de atualizar a
+// cena, corrige a posição do token, sem tocar nos atributos ou no Dice+.
+async function ensurePassBallPosition(ballId,destination){
+  const [ball]=await OBR.scene.items.getItems([ballId]);
+  if(!ball||!destination)throw Error("A bola oficial ou seu destino não foi encontrado.");
+  const bounds=await OBR.scene.items.getItemBounds([ballId]);
+  const center=bounds?.center||ball.position;
+  const epsilon=Math.max(1,(await OBR.scene.grid.getDpi())*.12);
+  if(Math.hypot(center.x-destination.x,center.y-destination.y)<=epsilon)return;
+  if(ball.locked)throw Error("A bola está bloqueada. Desbloqueie seu token em Montarias.");
+  const corrected={x:ball.position.x+destination.x-center.x,
+                   y:ball.position.y+destination.y-center.y};
+  await OBR.scene.items.updateItems([ballId],draft=>{
+    for(const item of draft)item.position=corrected;
+  });
+}
+
+// Limpa a jogada atual e a trava de saque. Fichas e atributos são preservados.
+async function clearHaikyuuRally(resetSet=false){
+  const update={[RALLY]:null,[LOCK]:null};
+  if(resetSet){update[SCORE]={allies:0,enemies:0};
+    update[HUD_TIME]={elapsed:0,running:false,startedAt:0};}
+  await OBR.scene.setMetadata(update);
+  const balls=await OBR.scene.items.getItems(isBall);
+  if(balls.length)await OBR.scene.items.updateItems(balls.map(b=>b.id),draft=>{
+    for(const item of draft)item.metadata[BALL_STATE]=null;
+  });
+  await OBR.tool.setMetadata(TOOL,{serverId:"",serveType:"",rollConfirmed:false,
+    natural:0,total:0,rollId:""}).catch(console.warn);
+  await OBR.broadcast.sendMessage(ARM_EVENT,{metadata:null},
+    {destination:"ALL"}).catch(console.warn);
+}
+
 // ================= v0.13 · ESTADO DA BOLA E PASSE ================
 const BALL_STATE=ID+"/ball-state";
 const PASS_FLIGHT_REQUEST=ID+"/pass-flight-request", PASS_FLIGHT_FINISHED=ID+"/pass-flight-finished";
@@ -517,6 +602,22 @@ async function startBackground(){
  let firstCorner=null,previewIds=[],previewJob=null,previewKey="",previewType=null,active=false,executing=false,dpi=0,court=null;
  let pointerServeMeta=null;
  let myPlayerId=await OBR.player.getId();
+ // HUD flutuante reabrível com um ícone próprio na barra de ferramentas.
+ async function openScoreboard(){
+   const width=await OBR.viewport.getWidth();
+   await OBR.popover.close(ID+"/hud").catch(()=>{});
+   await OBR.popover.open({id:ID+"/hud",url:new URL("./index.html?overlay=1",import.meta.url).href,
+     width:Math.min(388,Math.max(280,width-230)),height:145,
+     anchorReference:"POSITION",anchorPosition:{left:width>810?416:(width>610?Math.max(220,width-390):8),top:10},
+     anchorOrigin:{horizontal:"LEFT",vertical:"TOP"},
+     transformOrigin:{horizontal:"LEFT",vertical:"TOP"},disableClickAway:true,hidePaper:true});
+ }
+ try{
+   await OBR.tool.create({id:ID+"/tool-placar",icons:[{icon:ICON,label:"🏐 Placar e Cronômetro — abrir painel"}],
+     onClick(){void openScoreboard().catch(e=>notify("Painel: "+e.message,"ERROR"));return false;}});
+ }catch(error){console.warn("Haikyuu: botão do placar",error);}
+ try{await openScoreboard();}catch(error){console.warn("Haikyuu: HUD indisponível",error);}
+ 
  let calibrationPreviewIds=[],calibrationPreviewJob=null,calibrationPreviewKey="",calibrationNonce=null,calibrationTask="outer";
  let zoneIds=[],zoneJob=Promise.resolve(),zoneSerial=0;
  let lastSelection=null,opening=false,selectionSerial=0,pendingPoint=null,pendingMeta=null,painting=false;
@@ -804,29 +905,64 @@ async function startBackground(){
      throw Error("O receptor não chegou à casa onde estava a bola.");
  }
  async function flyPassBall(ball,destination,identity){
-   if(ball.locked)throw Error("O token da bola está bloqueado. Desbloqueie-o.");
+   if(ball.locked)throw Error("Desbloqueie a bola oficial para concluir o Passe.");
+   if(!destination||![destination.x,destination.y].every(Number.isFinite))
+     throw Error("O Passe não possui um destino válido.");
+   const ensureCurrent=async()=>{
+     const current=(await OBR.scene.getMetadata())[RALLY];
+     if(current?.serveId!==identity.serveId||current?.timestamp!==identity.timestamp||
+         current?.phase!=="passe_em_voo"||current?.receiverId!==identity.receiverId)
+       throw Error("O Rally foi reiniciado durante o movimento do Passe.");
+   };
+   await ensureCurrent();
    const bounds=await OBR.scene.items.getItemBounds([ball.id]);
-   const fromCenter=bounds?.center||ball.position;
+   const center=bounds?.center||ball.position;
    const from={...ball.position};
-   const target={x:from.x+destination.x-fromCenter.x,y:from.y+destination.y-fromCenter.y};
-   const duration=1050,steps=12;
-   for(let step=1;step<=steps;step++){
-     // Impede que o movimento de um rally antigo sobrescreva o próximo saque.
-     if(step===1||step===7){
-       const current=(await OBR.scene.getMetadata())[RALLY];
-       if(current?.serveId!==identity.serveId||current.timestamp!==identity.timestamp||current.phase!=="passe_em_voo")
-         throw Error("Rally alterado durante o movimento do Passe.");
-     }
-     const t=step/steps,e=t*t*(3-2*t);
-     await OBR.scene.items.updateItems([ball.id],draft=>{
-       for(const item of draft)item.position={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e};
-     });
-     if(step<steps)await sleep(duration/steps);
+   const target={x:from.x+destination.x-center.x,y:from.y+destination.y-center.y};
+   const duration=1100,steps=28;
+   // É a mesma API de interação já usada pelo movimento dos Saques.
+   // Se ela falhar, executamos animação por alterações persistentes.
+   let completed=false;
+   try{
+     const [update,stop]=await OBR.interaction.startItemInteraction(ball);
+     try{
+       for(let step=1;step<=steps;step++){
+         if(step===1||step===14||step===steps)await ensureCurrent();
+         const t=step/steps,e=t*t*(3-2*t);
+         update(draft=>{draft.position={x:from.x+(target.x-from.x)*e,y:from.y+(target.y-from.y)*e};});
+         if(step<steps)await sleep(duration/steps);
+       }
+       completed=true;
+     }finally{await stop();}
+   }catch(error){
+     console.warn("Haikyuu: animação do Passe usando movimento persistente",error);
    }
+   if(!completed){
+     // Recuperação visual: a bola continua se deslocando, não fica parada no contato.
+     const freshBounds=await OBR.scene.items.getItemBounds([ball.id]);
+     const freshBall=(await OBR.scene.items.getItems([ball.id]))[0];
+     if(!freshBall||freshBall.locked)throw Error("A bola foi removida ou está bloqueada.");
+     const newFrom={...freshBall.position},newCenter=freshBounds?.center||freshBall.position;
+     const newTo={x:newFrom.x+destination.x-newCenter.x,y:newFrom.y+destination.y-newCenter.y};
+     for(let step=1;step<=14;step++){
+       if(step===1||step===7||step===14)await ensureCurrent();
+       const t=step/14,e=t*t*(3-2*t);
+       await OBR.scene.items.updateItems([ball.id],draft=>{
+         for(const item of draft)item.position={x:newFrom.x+(newTo.x-newFrom.x)*e,y:newFrom.y+(newTo.y-newFrom.y)*e};
+       });
+       if(step<14)await sleep(60);
+     }
+   }
+   await ensureCurrent();
+   // O movimento ao final da interação também precisa ficar salvo na cena.
+   const [after]=await OBR.scene.items.getItems([ball.id]);
+   if(!after||after.locked)throw Error("Bola indisponível após o Passe.");
    const finalBounds=await OBR.scene.items.getItemBounds([ball.id]);
-   const final=finalBounds?.center;
-   if(final&&Math.hypot(final.x-destination.x,final.y-destination.y)>Math.max(1,await OBR.scene.grid.getDpi()*.12))
-     throw Error("O token não chegou ao destino do Passe.");
+   const final=finalBounds?.center||after.position;
+   if(Math.hypot(final.x-destination.x,final.y-destination.y)>1){
+     const corrected={x:after.position.x+destination.x-final.x,y:after.position.y+destination.y-final.y};
+     await OBR.scene.items.updateItems([ball.id],draft=>{for(const item of draft)item.position=corrected;});
+   }
  }
  OBR.broadcast.onMessage(PASS_FLIGHT_REQUEST,event=>{void(async()=>{
    const req=event.data;
@@ -896,8 +1032,7 @@ async function startBackground(){
        await removePreview();await animate(balls[0],chosen);
        // O erro natural prevalece sobre quaisquer atributos e modificadores.
        const previous=(await OBR.scene.getMetadata());
-       const score=cleanScore(previous[SCORE]);
-       if(!landedInside)score[recipientTeam]++;
+        // Pontuação é lançada manualmente no painel superior (v0.23).
        const serveResult={type:meta.serveType,natural:meta.natural,total:meta.total,
          serveId:meta.rollId||"",serverId:meta.serverId,sourceTeam,recipientTeam,
          landing:chosen,landingZone:courtZone(chosen,court),inside:landedInside,ended:!landedInside,awaitingReception:landedInside,
@@ -909,7 +1044,7 @@ async function startBackground(){
         await OBR.scene.items.updateItems([balls[0].id],draft=>{
           for(const item of draft)item.metadata[BALL_STATE]=fullRally;
         });
-        await OBR.scene.setMetadata({[SCORE]:score,[RALLY]:fullRally});
+        await OBR.scene.setMetadata({[RALLY]:fullRally});
        if(naturalFail)await notify(`🚫 ${t.name}: D20 natural ${meta.natural}. Erro automático! Ponto para ${recipientTeam==="allies"?"TIME A":"TIME B"}.`);
        else if(!landedInside)await notify(`🚫 ${t.name}: bola FORA! Ponto para ${recipientTeam==="allies"?"TIME A":"TIME B"}.`);
        else await notify(`🏐 ${t.name}: DENTRO! Recepção: ${t.receive}.`);
@@ -1087,6 +1222,7 @@ async function startPanel(){
  let latestPreparedRollId=null;
  let restoreToolId=null,restoreModeId=null;
  let selectSerial=0,busy=false,editingProfile=false,manualTypeChoice=false;const rolls=new Map();
+ let sheetTab="ficha",serveExpanded=false,selectedServeType="underhand";
  // Autosave por token: edição otimista + 500ms de debounce, gravações em fila.
  const pending=new Map(),timers=new Map(),chains=new Map(),localSheets=new Map();
  let suppressEchoUntil=0;
@@ -1139,7 +1275,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.20</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.23</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div>
  ${isCharacter(selected)&&view!=="choose"?'<button class="switch" data-act="switch">⇄ Trocar tipo de ficha</button>':""}</header>`;}
  function choose(){
@@ -1153,7 +1289,7 @@ async function startPanel(){
  ${ATTRS.map(a=>`<div class="attr"><label>${a}</label>${editable
  ? `<input type="number" data-attr="${a}" value="${s.attributes[a]}" min="0" max="${s.level===1?INITIAL_ATTRIBUTE_CAP:9999}">`
  : `<strong style="text-align:center;color:#ffe4a5;font-size:17px">${s.attributes[a]}</strong>`}
- <button data-roll="${a}" ${busy?"disabled":""}>${rally?.awaitingReception&&SERVE_TYPES[rally.type]?.receptionAttr===a?"🏐 Receber":"🎲 Rolar"}</button></div>`).join("")}
+ <button data-roll="${a}" ${busy?"disabled":""}>🎲 Rolar</button></div>`).join("")}
  <p class="small">${editable?"Ajustes de atributos pelo mestre.":"Atributos definidos na criação. Evoluções futuras serão controladas pelo mestre."}</p></section>`;}
  function positionSelect(s,editable){return `<label class="field">Posição
  <select data-profile="position" ${editable?"":"disabled"}>
@@ -1187,23 +1323,53 @@ async function startPanel(){
    <div class="item"><small>Altura</small><b>${s.heightCm??"—"} cm</b></div>
    <div class="item"><small>Impulsão</small><b>${s.jumpCm??"—"} cm</b></div>
    </div>`;}
- function serveCard(){return `<section class="card serve"><p class="kicker">Gameplay • Rally</p><h2>🏐 Tipos de Saque</h2>
-   <p class="small">Escolha o saque: a rolagem do Dice+ será iniciada automaticamente. O erro depende apenas do D20 natural.</p>
-   <div class="serve-list">${Object.entries(SERVE_TYPES).map(([key,t])=>`<button class="serve-option" data-serve="${key}" ${busy||(serveLock?.until>Date.now())?"disabled":""}>
-     <span>🏐 ${t.name}<small>${t.area}<br>${t.mod<0?"−2 no Teste de Saque":"Teste de Saque normal"} · ${t.receive} · Erro no D20 ${t.fail===1?"1":`1–${t.fail}`}</small></span><b>→</b></button>`).join("")}</div>
-   <p class="small">Baixo: 4 destinos; Cima: até 6; Flutuante: 8; Viagem: 7×7, até 49. Por Cima e Viagem NÃO sorteiam casas antes da linha de 3 m. Azul = dentro; laranja = fora; vermelho = destino proibido ou mira inválida.</p>
-   <p class="small">${serveLock?.until>Date.now()?"⏳ Bola em movimento: o próximo saque será liberado ao terminar.":"✅ Pode fazer outro saque após a bola parar. Se pular a recepção, o rally anterior será encerrado sem ponto extra."}</p>
-   <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre precisa marcar Time A/B e área total"}. Ao clicar no saque, tentaremos ativar a mira diretamente na ferramenta atual. Se o Owlbear não permitir, selecione 🏐 como alternativa.</p></section>`;}
- function receiveCard(){
+ function serveCard(){
+   const explanations={
+     underhand:"Saque controlado e de baixo risco. É fácil de receber.",
+     overhand:"Saque equilibrado, com trajetória convencional e baixa taxa de erro.",
+     float:"Saque de trajetória imprevisível, que dificulta o Passe adversário.",
+     jump:"Saque muito potente: exige que o adversário receba com Defesa, em vez de Passe."
+   };
+   if(!SERVE_TYPES[selectedServeType])selectedServeType="underhand";
+   const t=SERVE_TYPES[selectedServeType];
+   const isLocked=busy||(serveLock?.until>Date.now());
+   return `<section class="card serve"><p class="kicker">Gameplay • Rally</p>
+     <button type="button" class="serve-accordion" data-act="toggle-serve-types" aria-expanded="${serveExpanded}">
+       <span>🏐 <b>Tipos de Saque</b></span><span class="chevron">${serveExpanded?"▴":"▾"}</span>
+     </button>
+     ${serveExpanded?`<div class="serve-picker">
+       ${Object.entries(SERVE_TYPES).map(([key,item])=>`<button type="button" class="serve-pick ${key===selectedServeType?"active":""}" data-act="select-serve-type" data-type="${key}" aria-pressed="${key===selectedServeType}">
+         <span>🏐 ${item.name}</span><span>${key===selectedServeType?"✓":"›"}</span></button>`).join("")}
+       </div>
+       <div class="serve-detail">
+         <strong>🏐 ${t.name}</strong>
+         <p class="small">${explanations[selectedServeType]}</p>
+         <div class="stat"><span>Área de mira</span><b>${t.area}</b></div>
+         <div class="stat"><span>Teste de Saque</span><b>${t.mod<0?"−2 no Teste":"Normal"}</b></div>
+         <div class="stat"><span>Recepção inimiga</span><b>${t.receive}</b></div>
+         <div class="stat"><span>Erro automático</span><b>D20 natural ${t.fail===1?"1":`1–${t.fail}`}</b></div>
+         <button type="button" class="wide primary" data-serve="${selectedServeType}" ${isLocked?"disabled":""}>🎯 Mirar e sacar — ${t.name}</button>
+       </div>`:`<p class="small">Toque em <b>Tipos de Saque</b> para abrir a lista e escolher a técnica desejada.</p>`}
+     <p class="small">Baixo: 4 destinos; Cima: até 6; Flutuante: 8; Viagem: 7×7, até 49. Por Cima e Viagem NÃO sorteiam casas antes da linha de 3 m. Azul = dentro; laranja = fora; vermelho = destino proibido ou mira inválida.</p>
+     <p class="small">${serveLock?.until>Date.now()?"⏳ Bola em movimento: o próximo saque será liberado ao terminar.":"✅ Pode fazer outro saque após a bola parar. Se pular a recepção, o Rally anterior será encerrado sem ponto extra."}</p>
+     <p class="small">${isCourt(court)?"✅ Quadra calibrada":"⚠️ Mestre precisa marcar Time A/B e área total"}. Ao sacar, tentaremos ativar a mira diretamente na ferramenta atual. Se o Owlbear não permitir, selecione 🏐 como alternativa.</p>
+   </section>`;
+ }
+  function receiveCard(){
    if(!isCharacter(selected)||!rally?.awaitingReception||!SERVE_TYPES[rally.type]||!isCourt(court))return "";
    const t=SERVE_TYPES[rally.type];
    const waiting=rally.receptionPending;
    return `<section class="card reception-card"><p class="kicker">Recepção do Saque</p><h2>🛡️ ${t.receive}</h2>
     <p class="small">${t.name} recebido: ${t.receptionAttr} ${t.advantage==="adv"?"com vantagem (2d20, maior)":t.advantage==="dis"?"com desvantagem (2d20, menor)":"normal (1d20)"}.</p>
-    <div class="notice" style="margin:10px 0">📏 <b>Distância automática:</b> −1 a cada 3 metros (2 casas) entre seu token e a bola; diagonais contam como uma casa. O cálculo é feito ao clicar no teste.</div>
+    <div class="notice" style="margin:10px 0">📏 <b>Distância automática:</b> −2 a cada 1,5 metro (1 casa) entre seu token e a bola; diagonais contam como uma casa. O cálculo é feito ao clicar no teste.</div>
     <button class="wide blue" data-act="receive" ${busy||waiting?"disabled":""}>${waiting?"⏳ Recepção em andamento":"🎲 Rolar recepção pelo Dice+"}</button>
     <p class="small">O Dice+ mostra a penalidade separada (ex.: 1d20+4-2). Após a classificação A/B/C/D, o receptor vai até a casa onde estava a bola; depois a bola viaja para a zona sorteada. Ace encerra o Rally. O resultado aparece nesta ficha, sem pop-up.</p></section>`;
  }
+ 
+ function resetTestCard(){return `<section class="card test-tools"><h2>♻️ Controles de Teste</h2><div class="buttons">
+ <button data-act="new-rally" ${role==="GM"?"":"disabled"}>🏐 Liberar novo saque</button>
+ <button data-act="reset-set" ${role==="GM"?"":"disabled"}>↺ Resetar Set</button>
+ </div><p>O primeiro mantém o placar. Resetar Set zera o Rally, o placar e o cronômetro, mas mantém as fichas.</p></section>`;}
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
      <h2>🏐 Montando seu Jogador</h2><div class="creation-steps"><span>1 • Seus dados</span><span>2 • 3 pontos extras</span><span>3 • Confirmar</span></div>
@@ -1212,20 +1378,24 @@ async function startPanel(){
      <h2>🎯 Distribuição de atributos</h2>${bonusBuilder(s,editable)}
      <button class="primary wide" data-act="finish-creation" ${editable&&s.position&&pointsSpent(s)===INITIAL_BONUS_POINTS?"":"disabled"}>✓ Confirmar jogador e abrir ficha</button>
      <p class="tip">Os dados e os pontos ficam salvos neste token antes da confirmação. Você só conclui quando distribuir os 3 pontos.</p></section>`;
-   if(!npc)return `<section class="card"><p class="kicker">Ficha Jogador • ${escapeHTML(s.position||"Atleta")}</p>
-     <h2>🏐 ${escapeHTML(s.name||"Atleta")}</h2>${summary(s)}
-     <div class="pill-ok">✓ Personagem criado</div>
-     <button class="wide" style="margin-top:10px" data-act="toggle-profile">${editingProfile?"Ocultar edição dos dados":"✎ Editar informações"}</button>
-     ${editingProfile?`<p class="small">Você pode atualizar seus dados. A posição fica bloqueada para jogadores após a criação; o mestre pode alterá-la.</p>
-       ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>`:""}
-     </section>
-     ${attributes(s,role==="GM")}
-     ${serveCard()}${receiveCard()}${setterCard()}`;
-   return `<section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
+   const tabs=`<nav class="sheet-tabs" role="tablist" aria-label="Abas da ficha">
+       <button type="button" class="${sheetTab==="ficha"?"active":""}" data-sheet-tab="ficha" role="tab" aria-selected="${sheetTab==="ficha"}">📋 Ficha</button>
+       <button type="button" class="${sheetTab==="saque"?"active":""}" data-sheet-tab="saque" role="tab" aria-selected="${sheetTab==="saque"}">🏐 Sacar/Receber</button>
+     </nav>`;
+   if(!npc){
+     if(sheetTab==="saque")return tabs+serveCard()+receiveCard()+setterCard()+resetTestCard();
+     return tabs+`<section class="card"><p class="kicker">Ficha Jogador • ${escapeHTML(s.position||"Atleta")}</p>
+       <h2>🏐 ${escapeHTML(s.name||"Atleta")}</h2>${summary(s)}
+       <div class="pill-ok">✓ Personagem criado</div>
+       <button class="wide" style="margin-top:10px" data-act="toggle-profile">${editingProfile?"Ocultar edição dos dados":"✎ Editar informações"}</button>
+       ${editingProfile?`<p class="small">Você pode atualizar seus dados. A posição fica bloqueada para jogadores após a criação; o mestre pode alterá-la.</p>
+         ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>`:""}
+       </section>`+attributes(s,role==="GM");
+   }
+   if(sheetTab==="saque")return tabs+serveCard()+receiveCard()+setterCard()+resetTestCard();
+   return tabs+`<section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
      <label class="field">Nome<input data-profile="name" maxlength="80" value="${escapeHTML(s.name)}" ${editable?"":"disabled"}></label>
-     <div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div></section>
-     ${attributes(s,editable)}
-     ${serveCard()}${receiveCard()}${setterCard()}`;
+     <div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div></section>`+attributes(s,editable);
  }
   // O token de bola é a ficha oficial da jogada; a cena mantém um espelho sincronizado.
   function ballState(){return (isBall(selected)?selected?.metadata?.[BALL_STATE]:null)||rally;}
@@ -1275,7 +1445,7 @@ async function startPanel(){
       for(const i of draft)i.metadata[BALL_STATE]={...next,ballId:ball.id};
     });
     const patch={[RALLY]:{...next,ballId:ball.id}};
-    if(addPoint){const meta=await OBR.scene.getMetadata();const sc=cleanScore(meta[SCORE]);sc[next.sourceTeam]++;patch[SCORE]=sc;}
+    // Pontos são lançados manualmente no HUD; nunca altera o placar em um Passe.
     await OBR.scene.setMetadata(patch);
     rally=patch[RALLY];
     render();
@@ -1399,7 +1569,7 @@ async function startPanel(){
    const changed=id!==selectedId;
    if(changed){
      const previous=selectedId;if(previous&&pending.has(previous))void flush(previous);
-     view="choose";manualTypeChoice=false;editingProfile=false;message="";
+     view="choose";manualTypeChoice=false;editingProfile=false;message="";sheetTab="ficha";serveExpanded=false;selectedServeType="underhand";
    }selectedId=id;
    if(!id||!(await OBR.scene.isReady())){selected=null;render();return;}
    const [i]=await OBR.scene.items.getItems([id]);if(serial!==selectSerial)return;
@@ -1651,9 +1821,9 @@ async function startPanel(){
         receiverStart:{x:center.x,y:center.y},at:Date.now()};
       let destination=null;
       if(!ace){
-        const candidates=passLandingCandidates(quality,court,current.recipientTeam,dpi);
-        if(!candidates.length)throw Error(`Não existem casas válidas para o Passe ${quality}. Confira as linhas de 3 metros e a área externa na ficha Mestre.`);
-        destination=pickCell(candidates);
+        // Direciona o Passe A ao token do levantador, e B à sua proximidade.
+        const chosen=await pickPassDestination(quality,court,current.recipientTeam,dpi);
+        destination=chosen.destination;
       }
       const next={...latest,receptionPending:!ace,awaitingReception:false,
         receiverId,reception,quality,ended:ace,passLanding:destination,
@@ -1665,7 +1835,7 @@ async function startPanel(){
         // Movimento do token após classificar A, B, C ou D.
         // O timer continua parado; Play só pode ser dado depois do Passe.
         let flight;
-        try{flight=await animatePassBall(balls[0],destination,next);}
+        try{flight=await animatePassBall(balls[0],destination,next);await ensurePassBallPosition(balls[0].id,destination);}
         catch(error){
           const failed=(await OBR.scene.getMetadata())[RALLY];
           if(failed?.serveId===current.serveId&&failed?.timestamp===current.timestamp)
@@ -1699,6 +1869,7 @@ async function startPanel(){
     await commitRally(working);
     try{
       const outcome=await animatePassBall(balls[0],current.passLanding,working);
+      await ensurePassBallPosition(balls[0].id,current.passLanding);
       const updated=(await OBR.scene.getMetadata())[RALLY];
       if(updated?.serveId===current.serveId&&updated?.timestamp===current.timestamp)
         await commitRally({...updated,receptionPending:false,phase:"aguardando_levantador",flightAnimated:outcome.animated});
@@ -1711,6 +1882,25 @@ async function startPanel(){
     }
   }
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
+   if(b.dataset.sheetTab){
+     if(busy||!isCharacter(selected)||!["ficha","saque"].includes(b.dataset.sheetTab))return;
+     sheetTab=b.dataset.sheetTab;message="";render();return;
+   }
+   if(b.dataset.act==="toggle-serve-types"){
+     if(busy)return;serveExpanded=!serveExpanded;render();return;
+   }
+   if(b.dataset.act==="select-serve-type"){
+     if(busy||!SERVE_TYPES[b.dataset.type])return;
+     selectedServeType=b.dataset.type;render();return;
+   }
+   if(b.dataset.act==="new-rally"||b.dataset.act==="reset-set"){
+     if(role!=="GM")return;
+     const full=b.dataset.act==="reset-set";
+     if(full&&!confirm("Resetar Set? O placar, o cronômetro e o Rally serão zerados."))return;
+     try{await clearHaikyuuRally(full);status(full?"✅ Set zerado; pronto para sacar.":"✅ Rally liberado para novo saque, sem perder o placar.");}
+     catch(error){status(error.message,"error");}
+     return;
+   }
    if(b.dataset.view){
      const requested=b.dataset.view;
      if(!["jogador","npc","mestre"].includes(requested))return;
@@ -1764,7 +1954,7 @@ async function startPanel(){
        const attr=b.dataset.roll;
        // Durante recepção, o botão normal do atributo correto também executa
        // a recepção oficial, com -distância EXPLÍCITO no Dice+ e movimento.
-       if(rally?.awaitingReception&&SERVE_TYPES[rally.type]?.receptionAttr===attr)
+       if(sheetTab==="saque"&&rally?.awaitingReception&&SERVE_TYPES[rally.type]?.receptionAttr===attr)
          await receiveServe();
        else status(`🎲 ${await roll(attr)}`);
        return;
@@ -1923,8 +2113,97 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.20</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
-else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
+
+// Cronômetro compartilhado em segundos e placar editado somente pelo Mestre.
+async function startOverlay(){
+  document.body.classList.add("haikyuu-hud");
+  document.head.insertAdjacentHTML("beforeend",`<style>
+    html,body{height:100%;margin:0;overflow:hidden!important;background:transparent!important}
+    .hud-root{height:100%;padding:7px 8px;background:#15283c;
+      border:1px solid #57758e;border-radius:12px;color:#f3f7ff;
+      font:12px system-ui,sans-serif;box-shadow:0 4px 18px #0006}
+    .hud-line{display:flex;align-items:center;justify-content:space-between;gap:7px}
+    .hud-title{font-size:11px;color:#ffbc69;font-weight:800;margin-bottom:4px}
+    .hud-time{font-variant-numeric:tabular-nums;font-size:22px;font-weight:900;color:#f9dda3}
+    .hud-btn{cursor:pointer;background:#304763;color:white;border:1px solid #65829a;
+      border-radius:6px;padding:5px 9px;font-size:12px;font-weight:800}
+    .hud-btn:disabled{opacity:.45;cursor:not-allowed}
+    .hud-teams{display:flex;align-items:center;justify-content:center;gap:8px}
+    .hud-score{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;min-width:23px;text-align:center}
+    .hud-mini{padding:3px 7px;font-size:12px}
+    .hud-secondary{font-size:10px;color:#aac2d6}
+    .hud-reset{border-color:#af8350;background:#594332}
+  </style>`);
+  app.innerHTML=`<div class="hud-root" aria-label="Placar e cronômetro do set">
+    <div class="hud-line hud-title"><span>🏐 HAIKYUU!! · Placar manual</span><span id="hud-role"></span></div>
+    <div class="hud-line">
+      <div><div class="hud-secondary">⏱ Cronômetro</div><span id="hud-time" class="hud-time">00:00</span></div>
+      <div><button class="hud-btn" data-hud="start">▶</button>
+        <button class="hud-btn" data-hud="pause">⏸</button>
+        <button class="hud-btn" data-hud="zero">↺</button></div>
+      <div><div class="hud-secondary">Time A · Time B</div><div class="hud-teams">
+        <button class="hud-btn hud-mini" data-hud="minus-a">−</button><span id="hud-score-a" class="hud-score">0</span>
+        <span>:</span><span id="hud-score-b" class="hud-score">0</span>
+        <button class="hud-btn hud-mini" data-hud="plus-b">+</button></div></div>
+    </div>
+    <div class="hud-line" style="margin-top:5px">
+      <div><button class="hud-btn hud-mini" data-hud="plus-a">+1 A</button>
+        <button class="hud-btn hud-mini" data-hud="minus-b">−1 B</button></div>
+      <div><button class="hud-btn hud-mini" data-hud="new-rally">Novo saque</button>
+        <button class="hud-btn hud-mini hud-reset" data-hud="reset-set">Resetar set</button></div>
+    </div>
+  </div>`;
+  let role=await OBR.player.getRole();let info=await OBR.scene.getMetadata();
+  const timing=()=>info[HUD_TIME]||{elapsed:0,running:false,startedAt:0};
+  const seconds=t=>Math.max(0,Math.floor((Number(t.elapsed)||0)+
+    (t.running?Math.max(0,(Date.now()-Number(t.startedAt||Date.now()))/1000):0)));
+  const timeText=n=>`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;
+  function draw(){
+    const sc=cleanScore(info[SCORE]);
+    const el=id=>document.getElementById(id);
+    el("hud-time").textContent=timeText(seconds(timing()));
+    el("hud-score-a").textContent=sc.allies;
+    el("hud-score-b").textContent=sc.enemies;
+    el("hud-role").textContent=role==="GM"?"Mestre":"Visualização";
+    app.querySelectorAll("[data-hud]").forEach(b=>b.disabled=role!=="GM");
+  }
+  setInterval(draw,230);
+  OBR.scene.onMetadataChange(meta=>{info=meta;draw();});
+  OBR.player.onChange(player=>{role=player.role;draw();});
+  app.addEventListener("click",async event=>{
+    const button=event.target.closest("[data-hud]");
+    if(!button||role!=="GM"||button.disabled)return;
+    const action=button.dataset.hud;
+    button.disabled=true;
+    try{
+      const meta=await OBR.scene.getMetadata();const t=meta[HUD_TIME]||{elapsed:0,running:false,startedAt:0};
+      if(action==="start"){
+        if(!t.running)await OBR.scene.setMetadata({[HUD_TIME]:{elapsed:seconds(t),startedAt:Date.now(),running:true}});
+      }else if(action==="pause"){
+        await OBR.scene.setMetadata({[HUD_TIME]:{elapsed:seconds(t),startedAt:0,running:false}});
+      }else if(action==="zero"){
+        await OBR.scene.setMetadata({[HUD_TIME]:{elapsed:0,startedAt:0,running:false}});
+      }else if(action==="new-rally"){
+        await clearHaikyuuRally(false);
+      }else if(action==="reset-set"){
+        if(confirm("Resetar o set? Isso zera o placar, cronômetro e dados do Rally atual. As fichas são preservadas."))
+          await clearHaikyuuRally(true);
+      }else{
+        const sc=cleanScore(meta[SCORE]);
+        if(action==="plus-a")sc.allies++;
+        if(action==="minus-a")sc.allies=Math.max(0,sc.allies-1);
+        if(action==="plus-b")sc.enemies++;
+        if(action==="minus-b")sc.enemies=Math.max(0,sc.enemies-1);
+        await OBR.scene.setMetadata({[SCORE]:sc});
+      }
+    }catch(error){console.error("Haikyuu HUD",error);await OBR.notification.show(error.message,"ERROR").catch(console.warn);}
+    finally{button.disabled=false;}
+  });
+  draw();
+}
+
+if(!OBR.isAvailable&&!background&&!overlay){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.23</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+else OBR.onReady(()=>{(overlay?startOverlay():background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
 });});
