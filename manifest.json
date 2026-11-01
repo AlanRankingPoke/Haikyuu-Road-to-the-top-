@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.23.0",
+  "version": "0.21.0",
   "manifest_version": 1,
-  "description": "Ficha em abas, saques e recepção com animação, reset de Rally/Set, cronômetro em segundos e placar manual.",
+  "description": "Passe movimenta receptor e bola; ficha compacta em 2 colunas; resets de saque e set exclusivos do mestre.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
