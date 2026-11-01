@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.21</title>
+<title>Haikyuu!! Road to the Top — 0.23</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -72,13 +72,20 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 @media(max-width:320px){.attributes-grid{gap:5px}.attributes-grid .attr{padding:7px 5px;gap:4px}.attributes-grid .attr button{min-width:45px;font-size:9px}}
 .gm-restart{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
 .gm-restart button{font-size:12px;padding:10px 6px}
+
+/* v0.23 — Abas da ficha preservadas: status e saque/recepção. */
+.game-tabs{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0 0 12px}
+.game-tabs button{padding:11px 7px;font-size:12px;background:#273c54;color:#cbd8e9;border:1px solid #48627c;border-radius:9px;min-width:0;line-height:1.25}
+.game-tabs button[aria-selected="true"]{background:#f4ad4c;color:#1b2a3d;border-color:#ffd18c;font-weight:900}
+.game-tabs button:not([aria-selected="true"]):hover{background:#38516e}
+.game-tab-panel{min-width:0}
 </style></head>
 <body><div id="app"><main><div class="card">🏐 Conectando ao Owlbear Rodeo...</div></main></div>
 <script type="module">
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.21 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.23 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
 // A área de fora é o complemento das quadras A/B.
@@ -206,7 +213,11 @@ function receptionDistance(receiverCenter,ballCenter,gridDpi){
  return {cells,meters,penalty,modifier:-penalty};
 }
 function receptionNotation(type,value,distancePenalty=0){
- const t=SERVE_TYPES[type],base=t.advantage==="adv"?"2d20kh1":t.advantage==="dis"?"2d20kl1":"1d20";
+ if(!SERVE_TYPES[type])throw Error("Tipo de Saque desconhecido na recepção.");
+ // Dice+ oficial: 2d20dl1 = DESCARTA o dado MENOR (vantagem).
+ // Evitamos depender de flags compartilhadas entre os tipos de saque:
+ // Baixo SEMPRE vantagem; Flutuante SEMPRE desvantagem; demais normais.
+ const base=type==="underhand"?"2d20dl1":type==="float"?"2d20kl1":"1d20";
  // IMPORTANTE: não simplificar o modificador. O Dice+ deve mostrar
  // 1d20+4-2 em vez de 1d20+2, para o jogador enxergar o nerf.
  // Todos os operadores são suportados pela notação do Dice+.
@@ -422,8 +433,11 @@ const QUALITY_RULES={
  C:{seconds:5,penalty:-1,disadvantage:false,reach:6},
  D:{seconds:5,penalty:0,disadvantage:true,reach:16}
 };
+// v0.23 — Nova qualidade da recepção (resultado final de Passe/Defesa menos Saque).
+// A: +3 ou mais | B: -1 a +2 | C: -3 a -2 | D: -5 a -4 | Ace: -6 ou menos.
+// A penalidade de distância (-1 a cada 3 m) já faz parte do total do Dice+.
 function classifyReception(diff){
- return diff>=5?"A":diff>=0?"B":diff>=-2?"C":diff>=-4?"D":"Ace";
+ return diff>=3?"A":diff>=-1?"B":diff>=-3?"C":diff>=-5?"D":"Ace";
 }
 function newTimer(quality){
  const durationMs=(QUALITY_RULES[quality]?.seconds||0)*1000;
@@ -1106,7 +1120,8 @@ async function startPanel(){
  let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore(),serveLock=null;
  let latestPreparedRollId=null;
  let restoreToolId=null,restoreModeId=null;
- let selectSerial=0,busy=false,editingProfile=false,manualTypeChoice=false;const rolls=new Map();
+ let selectSerial=0,busy=false,editingProfile=false,manualTypeChoice=false;
+ let panelTab="status";const tabByToken=new Map();const rolls=new Map();
  // Autosave por token: edição otimista + 500ms de debounce, gravações em fila.
  const pending=new Map(),timers=new Map(),chains=new Map(),localSheets=new Map();
  let suppressEchoUntil=0;
@@ -1159,7 +1174,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.21</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.23</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div></header>`;}
  function choose(){
  if(selected?.metadata?.[SHEET]?.kind==="mestre"&&role!=="GM")
@@ -1218,10 +1233,16 @@ async function startPanel(){
    const t=SERVE_TYPES[rally.type];
    const waiting=rally.receptionPending;
    return `<section class="card reception-card"><p class="kicker">Recepção do Saque</p><h2>🛡️ ${t.receive}</h2>
-    <p class="small">${t.name} recebido: ${t.receptionAttr} ${t.advantage==="adv"?"com vantagem (2d20, maior)":t.advantage==="dis"?"com desvantagem (2d20, menor)":"normal (1d20)"}.</p>
+    <p class="small">${t.name} recebido: ${t.receptionAttr} ${rally.type==="underhand"?"com VANTAGEM (2d20: descarta o menor)":rally.type==="float"?"com DESVANTAGEM (2d20: mantém o menor)":"normal (1d20)"}.</p>
     <div class="notice" style="margin:10px 0">📏 <b>Distância automática:</b> −1 a cada 3 metros (2 casas) entre seu token e a bola; diagonais contam como uma casa. O cálculo é feito ao clicar no teste.</div>
+    <p class="small"><b>Classificação atual:</b> A (+3 ou mais), B (+2 até −1), C (−2 até −3), D (−4 até −5), Ace (−6 ou menos).</p>
     <button class="wide blue" data-act="receive" ${busy||waiting?"disabled":""}>${waiting?"⏳ Recepção em andamento":"🎲 Rolar recepção pelo Dice+"}</button>
     <p class="small">O Dice+ mostra a penalidade separada (ex.: 1d20+4-2). Após a classificação A/B/C/D, o receptor vai até a casa onde estava a bola; depois a bola viaja para a zona sorteada. Ace encerra o Rally. O resultado aparece nesta ficha, sem pop-up.</p></section>`;
+ }
+ function gameplayTabs(){
+   const waiting=!!rally?.awaitingReception&&!!SERVE_TYPES[rally?.type];
+   const tab=(name,label)=>`<button type="button" role="tab" aria-selected="${panelTab===name}" data-panel-tab="${name}" ${busy?"disabled":""}>${label}</button>`;
+   return `<nav class="game-tabs" role="tablist" aria-label="Abas do jogador">${tab("status","📋 Status")}${tab("rally",waiting?"🏐 Saque/Recepção • !":"🏐 Saque/Recepção")}</nav>`;
  }
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
@@ -1231,20 +1252,23 @@ async function startPanel(){
      <h2>🎯 Distribuição de atributos</h2>${bonusBuilder(s,editable)}
      <button class="primary wide" data-act="finish-creation" ${editable&&s.position&&pointsSpent(s)===INITIAL_BONUS_POINTS?"":"disabled"}>✓ Confirmar jogador e abrir ficha</button>
      <p class="tip">Os dados e os pontos ficam salvos neste token antes da confirmação. Você só conclui quando distribuir os 3 pontos.</p></section>`;
-   if(!npc)return `<section class="card"><p class="kicker">Ficha Jogador • ${escapeHTML(s.position||"Atleta")}</p>
+   // A aba de Saque/Recepção é permanente, independente da compactação dos atributos.
+   // A criação de personagem permanece na tela inicial até ser concluída.
+   if(panelTab==="rally")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Saque e Recepção">
+     ${serveCard()}${receiveCard()}${setterCard()}</div>`;
+   if(!npc)return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Status">
+     <section class="card"><p class="kicker">Ficha Jogador • ${escapeHTML(s.position||"Atleta")}</p>
      <h2>🏐 ${escapeHTML(s.name||"Atleta")}</h2>${summary(s)}
      <div class="pill-ok">✓ Personagem criado</div>
      <button class="wide" style="margin-top:10px" data-act="toggle-profile">${editingProfile?"Ocultar edição dos dados":"✎ Editar informações"}</button>
      ${editingProfile?`<p class="small">Você pode atualizar seus dados. A posição fica bloqueada para jogadores após a criação; o mestre pode alterá-la.</p>
        ${profileFields(s,editable)}<div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div>`:""}
-     </section>
-     ${attributes(s,role==="GM")}
-     ${serveCard()}${receiveCard()}${setterCard()}`;
-   return `<section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
+     </section>${attributes(s,role==="GM")}</div>`;
+   return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Status">
+     <section class="card"><p class="kicker">Ficha NPC</p><h2>🎭 ${escapeHTML(s.name)}</h2>
      <label class="field">Nome<input data-profile="name" maxlength="80" value="${escapeHTML(s.name)}" ${editable?"":"disabled"}></label>
      <div id="autosave" class="save-indicator" aria-live="polite">✓ Autosave ativado</div></section>
-     ${attributes(s,editable)}
-     ${serveCard()}${receiveCard()}${setterCard()}`;
+     ${attributes(s,editable)}</div>`;
  }
   // O token de bola é a ficha oficial da jogada; a cena mantém um espelho sincronizado.
   function ballState(){return (isBall(selected)?selected?.metadata?.[BALL_STATE]:null)||rally;}
@@ -1425,6 +1449,7 @@ async function startPanel(){
    if(changed){
      const previous=selectedId;if(previous&&pending.has(previous))void flush(previous);
      view="choose";manualTypeChoice=false;editingProfile=false;message="";
+     panelTab=tabByToken.get(id)||"status";
    }selectedId=id;
    if(!id||!(await OBR.scene.isReady())){selected=null;render();return;}
    const [i]=await OBR.scene.items.getItems([id]);if(serial!==selectSerial)return;
@@ -1658,7 +1683,8 @@ async function startPanel(){
     await commitRally({...current,receptionPending:true,receiverId});
     try{
       status(`📏 ${t.receptionAttr} de ${s.name}: ${distance.meters.toFixed(2).replace(".",",")} m da bola; penalidade −${distance.penalty}. 🎲 ${notation} no Dice+…`);
-      const rolled=await requestDice(notation,`${t.receptionAttr} de ${s.name}`);
+      const rollLabel=`${t.receptionAttr} de ${s.name}${current.type==="underhand"?" — VANTAGEM":current.type==="float"?" — DESVANTAGEM":""}`;
+      const rolled=await requestDice(notation,rollLabel);
       const latest=(await OBR.scene.getMetadata())[RALLY];
       if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp)
         throw Error("O Rally mudou durante a recepção.");
@@ -1759,6 +1785,12 @@ async function startPanel(){
    render();return true;
  }
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
+   if(b.dataset.panelTab){
+     if(busy||!isCharacter(selected)||!['status','rally'].includes(b.dataset.panelTab)||!['jogador','npc'].includes(view))return;
+     panelTab=b.dataset.panelTab;
+     if(selectedId)tabByToken.set(selectedId,panelTab);
+     message="";render();return;
+   }
    if(b.dataset.view){
      const requested=b.dataset.view;
      if(!["jogador","npc","mestre"].includes(requested))return;
@@ -1772,6 +1804,7 @@ async function startPanel(){
        // trocando de personagem ou atualizando o Owlbear.
        await saveSheet({kind:requested});
        view=requested;manualTypeChoice=false;editingProfile=false;message="";
+       panelTab="status";if(selectedId)tabByToken.set(selectedId,panelTab);
      }catch(err){console.error("Haikyuu: salvar tipo de ficha",err);status(err.message,"error");}
      finally{busy=false;render();}
      return;
@@ -1973,7 +2006,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.21</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.23</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
