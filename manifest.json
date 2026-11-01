@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "manifest_version": 1,
-  "description": "Recepcao corrigida: personagem e bola se movem na mesma acao, com destino salvo. Mantem Dice+, timer e abas.",
+  "description": "Aba Levantamento: corrida por Passe A/B/C/D, penalidade de distancia e timer do mestre.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
