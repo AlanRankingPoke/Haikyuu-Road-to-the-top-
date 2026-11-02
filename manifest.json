@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "manifest_version": 1,
-  "description": "Aba Levantamento: corrida por Passe A/B/C/D, penalidade de distancia e timer do mestre.",
+  "description": "Aba Levantamento para todos os personagens; corrida exclusiva do Levantador. Mantem saques, passes e timer.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
