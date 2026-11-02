@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haikyuu!! Road to the Top — 0.26</title>
+<title>Haikyuu!! Road to the Top — 0.27</title>
 <link rel="icon" type="image/png" href="./Icon.png">
 <style>
 :root{font:14px system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f7fc;background:#141b28;color-scheme:dark}
@@ -1080,7 +1080,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.26</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.27</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div></header>`;}
  function choose(){
  if(selected?.metadata?.[SHEET]?.kind==="mestre"&&role!=="GM")
@@ -1148,8 +1148,9 @@ async function startPanel(){
  function gameplayTabs(){
    const waiting=!!rally?.awaitingReception&&!!SERVE_TYPES[rally?.type];
    const tab=(name,label)=>`<button type="button" role="tab" aria-selected="${panelTab===name}" data-panel-tab="${name}" ${busy?"disabled":""}>${label}</button>`;
-   const hasSetting=currentSheet().position==="Levantador";
-   return `<nav class="game-tabs ${hasSetting?"three":""}" role="tablist" aria-label="Abas do jogador">${tab("status","📋 Status")}${tab("rally",waiting?"🏐 Saque/Recepção • !":"🏐 Saque/Recepção")}${hasSetting?tab("setter","🏐 Levantamento"):""}</nav>`;
+   // Todos os jogadores e NPCs podem ABRIR e acompanhar a aba Levantamento.
+   // A permissao de assumir a corrida e validada separadamente pela posicao.
+   return `<nav class="game-tabs three" role="tablist" aria-label="Abas do jogador">${tab("status","📋 Status")}${tab("rally",waiting?"🏐 Saque/Recepção • !":"🏐 Saque/Recepção")}${tab("setter","🏐 Levantamento")}</nav>`;
  }
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
@@ -1161,7 +1162,7 @@ async function startPanel(){
      <p class="tip">Os dados e os pontos ficam salvos neste token antes da confirmação. Você só conclui quando distribuir os 3 pontos.</p></section>`;
    // A aba de Saque/Recepção é permanente, independente da compactação dos atributos.
    // A criação de personagem permanece na tela inicial até ser concluída.
-   if(panelTab==="setter"&&s.position==="Levantador")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Levantamento">
+   if(panelTab==="setter")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Levantamento">
      ${setterCard()}${timerCard()}</div>`;
    if(panelTab==="rally")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Saque e Recepção">
      ${serveCard()}${receiveCard()}</div>`;
@@ -1206,22 +1207,24 @@ async function startPanel(){
       </div><p class="small">Só o mestre controla o timer. Ao zerar, o Dice+ faz o Levantamento automaticamente.</p>`:""}
     </section>`;
   }
-  // Aba exclusiva de atletas cadastrados na posição Levantador.
+  // Todos acompanham a aba, mas apenas o Levantador assume a corrida.
   function setterCard(){
-    if(!isCharacter(selected)||currentSheet().position!=="Levantador")return "";
+    if(!isCharacter(selected))return "";
+    const qualified=currentSheet().position==="Levantador";
+    const positionNotice=qualified?"":`<p class="small">📋 Esta aba fica disponível para todos os personagens. A ação de corrida é exclusiva de quem tem a posição <b>Levantador</b> na ficha.</p>`;
     const current=rally;
     if(!current?.reception||!QUALITY_RULES[current.quality])
-      return `<section class="card"><h2>🏐 Levantamento</h2><p class="small">Aguarde a recepção do saque para liberar a corrida do Levantador.</p></section>`;
+      return `<section class="card"><h2>🏐 Levantamento</h2>${positionNotice}<p class="small">Aguarde a recepção do saque para acompanhar a corrida do Levantador.</p></section>`;
     const assigned=current.setterId===selectedId,rule=QUALITY_RULES[current.quality];
     const failure=current.phase==="alcance_falhou";
     const finished=current.phase==="levantado"||current.phase==="resolvendo";
     const active=!current.ended&&!current.receptionPending&&!['passe_em_voo','passe_movimento_falhou'].includes(current.phase);
-    const canChoose=active&&!current.setterId;
+    const canChoose=qualified&&active&&!current.setterId;
     const canTest=active&&assigned&&current.phase==="aguardando_alcance";
     const canRetry=active&&assigned&&current.phase==="corrida_erro";
     const meters=Number(current.setterRunMeters||0);
     const distanceText=`${meters.toFixed(2).replace(".",",")} m`;
-    return `<section class="card reception-card"><p class="kicker">Gameplay • Levantador</p><h2>🏃 Corrida do Levantador</h2>
+    return `<section class="card reception-card"><p class="kicker">Gameplay • Levantamento</p><h2>🏃 Corrida do Levantador</h2>${positionNotice}
       <p class="small">Passe ${escapeHTML(current.quality)}: ${rule.reach?`alcance no D20 natural ≥ ${rule.reach}`:"a bola chega diretamente ao levantador (automático)"}.</p>
       <div class="stat"><span>Levantador</span><b>${escapeHTML(current.setterName||"Ainda não escolhido")}</b></div>
       <div class="stat"><span>Distância a percorrer</span><b>${assigned?distanceText:"Calculada ao assumir a jogada"}</b></div>
@@ -1464,7 +1467,6 @@ async function startPanel(){
    if(!id||!(await OBR.scene.isReady())){selected=null;render();return;}
    const [i]=await OBR.scene.items.getItems([id]);if(serial!==selectSerial)return;
    selected=i||null;
-   if(panelTab==="setter"&&sheetOf(selected).position!=="Levantador")panelTab="status";
    // Evita reabrir a tela de seleção quando o tipo já está registrado.
    if(changed&&!manualTypeChoice)view=rememberedViewFor(selected,role);
    render();
@@ -1846,7 +1848,6 @@ async function startPanel(){
  app.addEventListener("click",async e=>{const b=e.target.closest("button");if(!b||b.disabled)return;
    if(b.dataset.panelTab){
      if(busy||!isCharacter(selected)||!['status','rally','setter'].includes(b.dataset.panelTab)||!['jogador','npc'].includes(view))return;
-     if(b.dataset.panelTab==='setter'&&currentSheet().position!=="Levantador")return;
      panelTab=b.dataset.panelTab;
      if(selectedId)tabByToken.set(selectedId,panelTab);
      message="";render();return;
@@ -2067,7 +2068,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.26</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.27</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
