@@ -81,13 +81,24 @@ footer{text-align:center;font-size:10px;color:#859ab2;margin:18px 0}
 .game-tabs button[aria-selected="true"]{background:#f4ad4c;color:#1b2a3d;border-color:#ffd18c;font-weight:900}
 .game-tabs button:not([aria-selected="true"]):hover{background:#38516e}
 .game-tab-panel{min-width:0}
+/* v0.29: escolhas rápidas na aba Levantamento */
+.lift-choices{margin-top:12px;padding:12px;border-radius:12px;background:#172c3a;border:1px solid #5c8797}
+.lift-choices h2{font-size:15px;margin-bottom:10px}
+.lift-type-list{display:grid;gap:7px}
+.lift-type-list button{text-align:left;font-size:12px;padding:10px}
+.lift-type-list button small{display:block;font-size:10px;opacity:.84;margin-top:3px}
+.lift-choices .field{margin:10px 0}
+
+.clock-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:6px 0 10px}
+.clock-actions button{font-size:11px;padding:9px 3px}
+.gm-clock{border:1px solid #45637e;padding:10px;margin:9px 0;border-radius:10px;background:#182b3a}
 </style></head>
 <body><div id="app"><main><div class="card">🏐 Conectando ao Owlbear Rodeo...</div></main></div>
 <script type="module">
 import OBR, {buildShape} from "https://esm.sh/@owlbear-rodeo/sdk@3.1.0?bundle";
 
 // ================================================================
-// HAIKYUU!! ROAD TO THE TOP v0.25 — ARQUIVO PRINCIPAL ÚNICO
+// HAIKYUU!! ROAD TO THE TOP v0.29 — ARQUIVO PRINCIPAL ÚNICO
 // ?background=1 registra ferramentas / janela normal mostra fichas.
 // O MESTRE marca área total, Time A, Time B e linhas dos 3 m.
 // A área de fora é o complemento das quadras A/B.
@@ -107,6 +118,41 @@ const SERVE_TYPES={
  jump:{name:"Saque Viagem",mod:-2,fail:3,receive:"Teste de Defesa",receptionAttr:"Defesa",advantage:"normal",area:"Quadrado móvel 7 × 7 casas • 49 destinos",count:49}
 };
 const TOOL=ID+"/tool-saque", SERVE=ID+"/mode-saque", CALIBRATE=ID+"/mode-calibrar";
+const SET_AIM=ID+"/mode-mira-levantamento";
+const BLOCK_AIM=ID+"/mode-mira-bloqueio";
+const BLOCK_MOVE_SECONDS=20,BLOCK_DIRECTION_SECONDS=10;
+function newBlockClock(seconds=BLOCK_MOVE_SECONDS){
+ const ms=seconds*1000;return {durationMs:ms,remainingMs:ms,status:"idle",endsAt:null};
+}
+// Em duplo/triplo não se somam rolagens: maior resultado individual.
+function formationBonus(count){return count>=3?2:count===2?1:0;}
+function blockRunPenalty(meters){return Math.max(0,Math.ceil((meters-6-1e-7)/1.5));}
+function blockOutcome(diff){return diff>=3?"Monster Block":diff>=1?"Bloqueio de Prato":diff===0?"Bloqueio de Retorno":"Bloqueio Superado";}
+function blockingTeamOf(state){return state?.sourceTeam||null;}
+function isFrontCourt(point,c,team){
+ const rect=courtRect(c,team),layout=courtLayout(c);
+ if(!rect||!layout||!inside(point,rect))return false;
+ const line=c.lines?.[team==="allies"?"a":"b"];
+ if(!Number.isFinite(line))return false;
+ const towardNet=team==="allies"?layout.aFirst:!layout.aFirst;
+ return towardNet?point[layout.axis]>=line:point[layout.axis]<=line;
+}
+function blockAdjacency(point,ballPoint,c,size){
+ if(!point||!ballPoint||!size||!isCourt(c))return false;
+ const layout=courtLayout(c),other=layout.cross;
+ // O central lê a direção se fechar junto à projeção da bola na rede.
+ return Math.abs(point[other]-ballPoint[other])<=size*1.01 &&
+        Math.abs(point[layout.axis]-layout.net)<=size*1.51;
+}
+
+const SET_TYPES=Object.freeze({
+ alto:{name:"Levantamento Alto",testMod:0,attackMod:0},
+ meia:{name:"Levantamento de Meia Bola",testMod:-1,attackMod:1},
+ rapido:{name:"Levantamento Rápido",testMod:-1,attackMod:2}
+});
+function liftGrade(total){return total<=3?{name:"Falha",bonus:0}:total<=8?{name:"Ruim",bonus:-1}:total<=15?{name:"Bom",bonus:0}:total<=18?{name:"Excelente",bonus:1}:{name:"Perfeito",bonus:2};}
+function liftDistancePenalty(meters){return meters<=6+1e-7?0:Math.ceil((meters-6-1e-7)/3);}
+
 // A mira pode usar a ferramenta nativa de seleção do Owlbear.
 // O SDK permite ativar modos, mas não disponibiliza seleção forçada da ferramenta principal.
 const POINTER_TOOL="rodeo.owlbear.tools/pointer", POINTER_SERVE=ID+"/mode-saque-selecao";
@@ -509,47 +555,227 @@ async function backgroundSave(next){
  });
  await OBR.scene.setMetadata({[RALLY]:{...next,ballId:balls[0].id}});
 }
+// O destino do levantamento é um ÚNICO centro de casa (1 grid), definido pelo jogador.
+// A atualização final no token independe de a animação visual completar.
+async function flyBallAfterLift(target){
+ const balls=await OBR.scene.items.getItems(isBall);
+ if(balls.length!==1)throw Error("Bola oficial ausente no Levantamento.");
+ const ball=balls[0];
+ if(ball.locked)throw Error("A bola está bloqueada no Owlbear.");
+ const bounds=await OBR.scene.items.getItemBounds([ball.id]);
+ const center=bounds?.center||ball.position;
+ const from={...ball.position};
+ const to={x:from.x+target.x-center.x,y:from.y+target.y-center.y};
+ try{
+   const [update,stop]=await OBR.interaction.startItemInteraction(ball);
+   try{
+     const start=performance.now(),duration=940;
+     while(true){const t=Math.min(1,(performance.now()-start)/duration),ease=t*t*(3-2*t);
+       update(d=>{d.position={x:from.x+(to.x-from.x)*ease,y:from.y+(to.y-from.y)*ease};});
+       if(t>=1)break;await sleep(32);
+     }
+   }finally{await stop();}
+ }catch(err){console.warn("Animação do levantamento interrompida, aplicando destino final",err);}
+ await OBR.scene.items.updateItems([ball.id],draft=>{for(const i of draft)i.position={...to};});
+}
 async function backgroundExpireTimer(){
+ // Relógio do levantamento é separado da movimentação dos bloqueadores.
+
  if(autoTimerBusy||await OBR.player.getRole()!=="GM"||!await OBR.scene.isReady())return;
  const current=(await OBR.scene.getMetadata())[RALLY];
- if(!current?.setterId||current.timer?.status!=="running"||timerRemaining(current.timer)>0)return;
+ if(!current?.setterId||!["idle","running","awaiting_choice"].includes(current.timer?.status))return;
+ if(current.timer.status==="running"&&timerRemaining(current.timer)>0)return;
  autoTimerBusy=true;
  try{
    const [setter]=await OBR.scene.items.getItems([current.setterId]);
    if(!isCharacter(setter))throw Error("Levantador não encontrado.");
    const conditions=QUALITY_RULES[current.quality];
-   if(!conditions)throw Error("Qualidade de Passe desconhecida.");
-   if(!current.reachPassed||!current.setterRunDone)
-     throw Error("O Levantador ainda não concluiu a corrida. O timer não pode iniciar.");
+   if(!conditions||!current.reachPassed||!current.setterRunDone)
+     throw Error("O Levantador não concluiu a corrida.");
+   // O tempo não gera falha automática: não foi definida penalidade por deixar de escolher.
+   // A ficha mostra 0s e fica aguardando o tipo, o atacante e a casa escolhidos.
+   if(!SET_TYPES[current.liftType]||!current.liftTarget||!current.liftAttackerId){
+     if(current.timer.status!=="awaiting_choice")await backgroundSave({...current,
+       timer:{...current.timer,status:"awaiting_choice",remainingMs:0,endsAt:null},
+       phase:"escolhendo_levantamento"});
+     return;
+   }
+   const [attacker]=await OBR.scene.items.getItems([current.liftAttackerId]);
+   if(!isCharacter(attacker)||attacker.id===setter.id)throw Error("Atacante escolhido inválido.");
+   const court=(await OBR.scene.getMetadata())[COURT];
+   if(!isCourt(court))throw Error("A quadra precisa estar calibrada.");
+   const attackerBounds=await OBR.scene.items.getItemBounds([attacker.id]);
+   if(teamOfPosition(attackerBounds?.center||attacker.position,court)!==current.recipientTeam)
+     throw Error("O atacante deve pertencer à equipe do levantador.");
+   if(!inside(current.liftTarget,courtRect(court,current.recipientTeam)))
+     throw Error("O destino do levantamento está fora da quadra aliada.");
+   const balls=await OBR.scene.items.getItems(isBall);
+   if(balls.length!==1)throw Error("Bola oficial não encontrada.");
+   const bounds=await OBR.scene.items.getItemBounds([balls[0].id]);
+   const start=bounds?.center||balls[0].position;
+   const dpi=await OBR.scene.grid.getDpi();
+   const meters=Math.hypot(start.x-current.liftTarget.x,start.y-current.liftTarget.y)/dpi*1.5;
+   const distancePenalty=liftDistancePenalty(meters);
    const base=sheetOf(setter).attributes.Levantamento;
    const runPenalty=Math.max(0,Math.trunc(Number(current.setterRunPenalty)||0));
    const qualityPenalty=Number(conditions.penalty)||0;
-   // Mantém todas as parcelas visíveis no Dice+: ex. 1d20+4-2-1.
-   const notation=`${conditions.disadvantage?"2d20kl1":"1d20"}${base<0?"-":"+"}${Math.abs(base)}`+
-     `${runPenalty?`-${runPenalty}`:""}${qualityPenalty<0?qualityPenalty:""}`;
+   const type=SET_TYPES[current.liftType];
+   const notation=`${conditions.disadvantage?"2d20dh1":"1d20"}${base<0?"-":"+"}${Math.abs(base)}`+
+     `${runPenalty?`-${runPenalty}`:""}${qualityPenalty<0?qualityPenalty:""}`+
+     `${type.testMod<0?type.testMod:""}${distancePenalty?`-${distancePenalty}`:""}`;
    const working={...current,phase:"resolvendo",timer:{...current.timer,status:"resolving",remainingMs:0,endsAt:null}};
    await backgroundSave(working);
-   const rolled=await backgroundDice(notation,`Levantamento de ${sheetOf(setter).name}`);
+   const rolled=await backgroundDice(notation,`${type.name} de ${sheetOf(setter).name}`);
    const latest=(await OBR.scene.getMetadata())[RALLY];
-   if(latest?.serveId!==current.serveId||latest?.phase!=="resolvendo")return;
-   const lifting={setterId:current.setterId,setterName:sheetOf(setter).name,total:rolled.total,
-     natural:rolled.natural,notation,runPenalty,qualityPenalty,
-     distanceMeters:current.setterRunMeters||0,at:Date.now()};
-   await backgroundSave({...latest,lifting,phase:"levantado",timer:{...latest.timer,status:"done",remainingMs:0}});
-   await notify(`🏐 Levantamento de ${lifting.setterName}: ${lifting.total} (Passe ${current.quality}).`);
- }catch(error){
-   console.error("Haikyuu Timer automático",error);
-   const fresh=(await OBR.scene.getMetadata())[RALLY];
-   if(fresh?.serveId===current.serveId&&fresh?.timer?.status==="resolving"){
-     await backgroundSave({...fresh,phase:"aguardando_mestre",timer:{...fresh.timer,status:"error"}}).catch(console.warn);
+   if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp||latest?.phase!=="resolvendo")return;
+   const grade=liftGrade(rolled.total);
+   const lifting={setterId:current.setterId,setterName:sheetOf(setter).name,attackerId:attacker.id,
+     attackerName:sheetOf(attacker).name,type:current.liftType,typeName:type.name,
+     total:rolled.total,natural:rolled.natural,notation,quality:grade.name,
+     runPenalty,qualityPenalty,typePenalty:type.testMod,distancePenalty,
+     distanceMeters:meters,runMeters:current.setterRunMeters||0,
+     typeAttackBonus:type.attackMod,qualityAttackBonus:grade.bonus,
+     attackBonus:grade.name==="Falha"?0:type.attackMod+grade.bonus,
+     destination:{...current.liftTarget},at:Date.now()};
+   if(grade.name==="Falha"){
+     const meta=await OBR.scene.getMetadata(),score=cleanScore(meta[SCORE]);
+     score[current.sourceTeam]++;
+     await backgroundSave({...latest,lifting,ended:true,phase:"levantamento_falhou",
+       timer:{...latest.timer,status:"done",remainingMs:0,endsAt:null}});
+     await OBR.scene.setMetadata({[SCORE]:score});
+   }else{
+     // Persiste o resultado ANTES do movimento para não perder a rolagem.
+     await backgroundSave({...latest,lifting,phase:"bola_levantamento_em_voo"});
+     try{
+       await flyBallAfterLift(current.liftTarget);
+       const updated=(await OBR.scene.getMetadata())[RALLY];
+       if(updated?.serveId===current.serveId&&updated?.timestamp===current.timestamp)
+         await backgroundSave({...updated,phase:"levantado",timer:{...updated.timer,status:"done",remainingMs:0,endsAt:null},
+           blockDirectionTimer:{...newBlockClock(BLOCK_DIRECTION_SECONDS),status:"running",endsAt:Date.now()+BLOCK_DIRECTION_SECONDS*1000}});
+     }catch(error){
+       const updated=(await OBR.scene.getMetadata())[RALLY];
+       if(updated?.serveId===current.serveId&&updated?.timestamp===current.timestamp)
+         await backgroundSave({...updated,phase:"levantamento_movimento_falhou",liftMoveError:error.message,
+           timer:{...updated.timer,status:"done",remainingMs:0,endsAt:null}});
+     }
    }
-   await notify(`Falha no Levantamento automático: ${error.message}`,"ERROR");
+ }catch(error){
+   console.error("Haikyuu levantamento",error);
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId===current.serveId&&["running","awaiting_choice","resolving"].includes(fresh.timer?.status))
+     await backgroundSave({...fresh,phase:"aguardando_mestre",
+       timer:{...fresh.timer,status:"error",remainingMs:fresh.timer.durationMs,endsAt:null},liftError:error.message}).catch(console.warn);
  }finally{autoTimerBusy=false;}
 }
 
+
+// ==================== BLOQUEIO / RELÓGIOS DO MESTRE ====================
+let blockMovementBusy=false,blockDirectionBusy=false;
+async function moveBlockTokenToCenter(token,target){
+ const bounds=await OBR.scene.items.getItemBounds([token.id]);
+ const center=bounds?.center||token.position,from={...token.position};
+ const to={x:from.x+target.x-center.x,y:from.y+target.y-center.y};
+ if(token.locked)throw Error(`Token de ${sheetOf(token).name} bloqueado no Owlbear.`);
+ try{
+   const [update,stop]=await OBR.interaction.startItemInteraction(token);
+   try{
+     const start=performance.now(),duration=750;
+     while(true){const t=Math.min(1,(performance.now()-start)/duration),v=t*t*(3-2*t);
+       update(d=>{d.position={x:from.x+(to.x-from.x)*v,y:from.y+(to.y-from.y)*v};});
+       if(t>=1)break;await sleep(30);
+     }
+   }finally{await stop();}
+ }catch(err){console.warn("Animação do bloqueador; aplicar destino final",err);}
+ await OBR.scene.items.updateItems([token.id],draft=>{for(const i of draft)i.position={...to};});
+ const after=await OBR.scene.items.getItemBounds([token.id]);
+ if(after?.center&&Math.hypot(after.center.x-target.x,after.center.y-target.y)>2)
+   throw Error(`Não foi possível confirmar a posição final de ${sheetOf(token).name}.`);
+}
+async function backgroundExpireBlockMovement(){
+ if(blockMovementBusy||await OBR.player.getRole()!=="GM"||!await OBR.scene.isReady())return;
+ const current=(await OBR.scene.getMetadata())[RALLY];
+ const clock=current?.blockTimer;
+ if(!clock||clock.status!=="running"||timerRemaining(clock)>0||current.ended)return;
+ blockMovementBusy=true;
+ try{
+   const identity={serveId:current.serveId,timestamp:current.timestamp};
+   await backgroundSave({...current,blockTimer:{...clock,status:"moving",endsAt:null,remainingMs:0}});
+   const court=(await OBR.scene.getMetadata())[COURT];
+   const size=await OBR.scene.grid.getDpi(),plans=current.blockPlans||{},moved={};
+   for(const [id,choice] of Object.entries(plans).slice(0,3)){
+     const state=(await OBR.scene.getMetadata())[RALLY];
+     if(state?.serveId!==identity.serveId||state?.timestamp!==identity.timestamp)return;
+     const [token]=await OBR.scene.items.getItems([id]);
+     if(!isCharacter(token)||!isFrontCourt(choice.target,court,blockingTeamOf(current)))continue;
+     const bounds=await OBR.scene.items.getItemBounds([id]),from=bounds?.center||token.position;
+     const meters=Math.max(Math.abs(from.x-choice.target.x),Math.abs(from.y-choice.target.y))/size*1.5;
+     try{await moveBlockTokenToCenter(token,choice.target);
+       moved[id]={...choice,meters,runPenalty:blockRunPenalty(meters),arrived:true,central:sheetOf(token).position==="Central"};
+     }catch(err){moved[id]={...choice,meters,runPenalty:blockRunPenalty(meters),arrived:false,error:err.message};}
+   }
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId===identity.serveId&&fresh?.timestamp===identity.timestamp)
+     await backgroundSave({...fresh,blockMoved:moved,blockTimer:{...fresh.blockTimer,status:"done",remainingMs:0,endsAt:null}});
+ }catch(err){console.error("Movimento de bloqueio",err);
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId===current.serveId&&fresh?.timestamp===current.timestamp)
+     await backgroundSave({...fresh,blockError:err.message,blockTimer:{...fresh.blockTimer,status:"error",remainingMs:0,endsAt:null}}).catch(console.warn);
+ }finally{blockMovementBusy=false;}
+}
+async function backgroundExpireBlockDirection(){
+ if(blockDirectionBusy||await OBR.player.getRole()!=="GM"||!await OBR.scene.isReady())return;
+ const current=(await OBR.scene.getMetadata())[RALLY];
+ const timer=current?.blockDirectionTimer;
+ if(!timer||!["running","awaiting_movement"].includes(timer.status)||(timer.status==="running"&&timerRemaining(timer)>0)||current.ended)return;
+ blockDirectionBusy=true;
+ try{
+   // O segundo relógio não altera o primeiro: aguarda os deslocamentos acabarem.
+   if(current.blockTimer?.status!=="done"){
+     await backgroundSave({...current,blockDirectionTimer:{...timer,status:"awaiting_movement",remainingMs:0,endsAt:null}});return;
+   }
+   const participants=Object.entries(current.blockMoved||{}).filter(([id,p])=>p.arrived);
+   const court=(await OBR.scene.getMetadata())[COURT],size=await OBR.scene.grid.getDpi();
+   const result=[];
+   for(const [id,plan] of participants){
+     const [token]=await OBR.scene.items.getItems([id]);if(!token)continue;
+     const count=participants.length;
+     const bonus=formationBonus(count),centralBonus=plan.central&&blockAdjacency(plan.target,current.liftTarget,court,size)?2:0;
+     const directionBonus=count===1&&plan.direction&&current.attackDirection&&plan.direction===current.attackDirection?1:0;
+     const stat=sheetOf(token).attributes.Bloqueio;
+     const notation=`1d20${stat<0?"-":"+"}${Math.abs(stat)}${bonus?`+${bonus}`:""}${centralBonus?`+${centralBonus}`:""}${directionBonus?`+${directionBonus}`:""}${plan.runPenalty?`-${plan.runPenalty}`:""}`;
+     const salto=await backgroundDice(`1d20+${Math.max(0,sheetOf(token).attributes.Salto)}`,`Salto para Bloqueio de ${sheetOf(token).name}`);
+     const roll=await backgroundDice(notation,`Bloqueio de ${sheetOf(token).name}`);
+     result.push({id,name:sheetOf(token).name,total:roll.total,jumpTotal:salto.total,notation,bonus,centralBonus,directionBonus,runPenalty:plan.runPenalty,direction:plan.direction||null});
+   }
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId!==current.serveId||fresh?.timestamp!==current.timestamp)return;
+   const best=result.length?Math.max(...result.map(r=>r.total)):null;
+   const attack=current.attackRoll;
+   const comparison=Number.isFinite(best)&&Number.isFinite(attack?.total)?
+     {difference:best-attack.total,outcome:blockOutcome(best-attack.total)}:null;
+   const finalBlock={...fresh,blockResults:result,blockBest:best,blockComparison:comparison,
+     blockDirectionTimer:{...timer,status:"done",remainingMs:0,endsAt:null}};
+   if(comparison?.outcome==="Monster Block"){
+     const sc=cleanScore((await OBR.scene.getMetadata())[SCORE]);
+     sc[blockingTeamOf(current)]++;
+     await backgroundSave({...finalBlock,ended:true,phase:"monster_block"});
+     await OBR.scene.setMetadata({[SCORE]:sc});
+   }else await backgroundSave(finalBlock);
+   // O resultado do confronto não concede pontos automaticamente antes de todos
+   // os componentes serem confirmados. A resolução completa de ataque/defesa virá depois.
+ }catch(err){console.warn("Teste de bloqueio",err);
+   const fresh=(await OBR.scene.getMetadata())[RALLY];
+   if(fresh?.serveId===current.serveId&&fresh?.timestamp===current.timestamp)
+     await backgroundSave({...fresh,blockDirectionError:err.message,blockDirectionTimer:{...fresh.blockDirectionTimer,status:"error",remainingMs:0,endsAt:null}}).catch(console.warn);
+ }finally{blockDirectionBusy=false;}
+}
 async function startBackground(){
  app.innerHTML="";document.body.style.display="none";
- setInterval(()=>{void backgroundExpireTimer().catch(console.warn);},250);
+ setInterval(()=>{
+   void backgroundExpireTimer().catch(console.warn);
+   void backgroundExpireBlockMovement().catch(console.warn);
+   void backgroundExpireBlockDirection().catch(console.warn);
+ },250);
  let firstCorner=null,previewIds=[],previewJob=null,previewKey="",previewType=null,active=false,executing=false,dpi=0,court=null;
  let pointerServeMeta=null;
  let myPlayerId=await OBR.player.getId();
@@ -956,6 +1182,123 @@ async function startBackground(){
    onToolClick(ctx,e){void doServe(e.pointerPosition,ctx.metadata);return false;},
    onToolDragCancel(){void removePreview();}
  });
+ // Mira de uma casa para a movimentação do Bloqueio (cada jogador escolhe seu destino).
+ let blockPreviewId=null,blockPreviewBusy=false;
+ async function blockAimData(point){
+   const state=(await OBR.scene.getMetadata())[RALLY],meta=await OBR.tool.getMetadata(TOOL);
+   if(!state||state.ended||state.blockTimer?.status!=="running"||!meta?.blockerId||meta.blockServeId!==state.serveId)return null;
+   const court=(await OBR.scene.getMetadata())[COURT];if(!isCourt(court))return null;
+   const rect=courtRect(court,blockingTeamOf(state));
+   const size=await OBR.scene.grid.getDpi();
+   const target={x:rect.min.x+(Math.floor((point.x-rect.min.x)/size)+.5)*size,
+     y:rect.min.y+(Math.floor((point.y-rect.min.y)/size)+.5)*size};
+   const ok=isFrontCourt(target,court,blockingTeamOf(state)) &&
+     target.x-size/2>=rect.min.x-size*.001&&target.x+size/2<=rect.max.x+size*.001&&
+     target.y-size/2>=rect.min.y-size*.001&&target.y+size/2<=rect.max.y+size*.001;
+   return {state,meta,target,size,ok};
+ }
+ async function clearBlockPreview(){const id=blockPreviewId;blockPreviewId=null;
+   if(id)await OBR.scene.local.deleteItems([id]).catch(console.warn);}
+ async function paintBlockAim(point){
+   if(blockPreviewBusy)return;blockPreviewBusy=true;
+   try{const r=await blockAimData(point);
+     if(!r){await clearBlockPreview();return;}
+     if(!blockPreviewId){const item=shape("🛡 Destino do Bloqueador",r.size,r.size,"#a78bfa",.3);
+       await OBR.scene.local.addItems([item]);blockPreviewId=item.id;}
+     await OBR.scene.local.updateItems([blockPreviewId],draft=>{for(const i of draft){
+       i.position={x:r.target.x-r.size/2,y:r.target.y-r.size/2};
+       i.style.fillColor=r.ok?"#a78bfa":"#fb7185";i.style.strokeColor=i.style.fillColor;
+     }});
+   }catch(err){console.warn("Mira do bloqueador",err);}finally{blockPreviewBusy=false;}
+ }
+ async function commitBlockAim(point){
+   const r=await blockAimData(point);if(!r?.ok)throw Error("Escolha uma casa da frente da sua quadra, junto à rede.");
+   const [token]=await OBR.scene.items.getItems([r.meta.blockerId]);
+   if(!isCharacter(token))throw Error("Bloqueador não encontrado.");
+   const current=(await OBR.scene.getMetadata())[RALLY];
+   if(current.serveId!==r.state.serveId||current.timestamp!==r.state.timestamp||current.blockTimer?.status!=="running")return;
+   if(current.quality==="A"||current.quality==="B"){
+     if(current.liftTarget)throw Error("Passe A/B: o bloqueio deve ser escolhido ANTES do destino do levantamento.");
+   }else if(!current.liftTarget)throw Error("Passe C/D: espere o levantador marcar o destino.");
+   const plans=current.blockPlans||{};
+   if(!plans[token.id]&&Object.keys(plans).length>=3)throw Error("No máximo três bloqueadores por jogada.");
+   await backgroundSave({...current,blockPlans:{...plans,[token.id]:{
+     target:r.target,name:sheetOf(token).name,central:sheetOf(token).position==="Central",direction:plans[token.id]?.direction||null
+   }}});
+   await clearBlockPreview();
+   try{const mode=r.meta.blockReturnMode,tool=r.meta.blockReturnTool;
+     if(tool&&mode&&mode!==BLOCK_AIM)await OBR.tool.activateMode(tool,mode);
+     else await OBR.tool.activateMode(TOOL,SERVE);
+   }catch(err){console.warn("Restaurar ferramenta do bloqueador",err);}
+ }
+ await OBR.tool.createMode({id:BLOCK_AIM,icons:[{icon:ICON,label:"🛡 Mira de Bloqueio (1 casa)"}],cursors:[{cursor:"crosshair"}],
+   onDeactivate(){void clearBlockPreview();},
+   onToolMove(_ctx,e){void paintBlockAim(e.pointerPosition);},
+   onToolClick(_ctx,e){void commitBlockAim(e.pointerPosition).catch(async err=>{console.warn(err);await notify(`Bloqueio: ${err.message}`,"ERROR");});return false;},
+   onToolDragCancel(){void clearBlockPreview();}
+ });
+ // Mira do levantamento: uma única casa. A mesma ferramenta existente no mapa pode usá-la.
+ let liftPreviewId=null,liftPreviewBusy=false;
+ function liftedCell(point,c,size){
+   const r=courtRect(c,"allies");
+   // Alinhamento com a grade manual (o time pode estar em qualquer orientação).
+   if(!r)return null;
+   const x=r.min.x+(Math.floor((point.x-r.min.x)/size)+.5)*size;
+   const y=r.min.y+(Math.floor((point.y-r.min.y)/size)+.5)*size;
+   return {x,y};
+ }
+ async function clearLiftPreview(){const id=liftPreviewId;liftPreviewId=null;
+   if(id)await OBR.scene.local.deleteItems([id]).catch(console.warn);}
+ async function liftAimPoint(point){
+   const state=(await OBR.scene.getMetadata())[RALLY];
+   if(!state||!["idle","running","awaiting_choice"].includes(state.timer?.status)||!state.setterRunDone)return null;
+   const court=(await OBR.scene.getMetadata())[COURT];
+   if(!isCourt(court))return null;
+   const dpi=await OBR.scene.grid.getDpi();
+   const rect=courtRect(court,state.recipientTeam);
+   // Alinha centros usando a origem definida pelo mestre e a grade quadrada.
+   const p={x:rect.min.x+(Math.floor((point.x-rect.min.x)/dpi)+.5)*dpi,
+     y:rect.min.y+(Math.floor((point.y-rect.min.y)/dpi)+.5)*dpi};
+   const ok=p.x-dpi/2>=rect.min.x-dpi*.001 && p.x+dpi/2<=rect.max.x+dpi*.001 &&
+     p.y-dpi/2>=rect.min.y-dpi*.001 && p.y+dpi/2<=rect.max.y+dpi*.001;
+   return {p,ok,dpi,state};
+ }
+ async function previewLift(point){
+   if(liftPreviewBusy)return;liftPreviewBusy=true;
+   try{
+     const r=await liftAimPoint(point);
+     if(!r){await clearLiftPreview();return;}
+     if(!liftPreviewId){const sh=shape("🏐 Destino do Levantamento · 1 casa",r.dpi,r.dpi,"#fbbf24",.28);
+       await OBR.scene.local.addItems([sh]);liftPreviewId=sh.id;}
+     await OBR.scene.local.updateItems([liftPreviewId],draft=>{for(const i of draft){
+       i.position={x:r.p.x-r.dpi/2,y:r.p.y-r.dpi/2};
+       i.style.fillColor=r.ok?"#fbbf24":"#fb7185";
+       i.style.strokeColor=r.ok?"#fbbf24":"#fb7185";
+     }});
+   }catch(error){console.warn("Prévia de levantamento",error);}finally{liftPreviewBusy=false;}
+ }
+ async function chooseLiftCell(point){
+   const r=await liftAimPoint(point);
+   if(!r?.ok)throw Error("Clique em uma casa DENTRO da quadra do seu time.");
+   const now=(await OBR.scene.getMetadata())[RALLY];
+   if(now?.serveId!==r.state.serveId||now?.timestamp!==r.state.timestamp)return;
+   const toolMeta=await OBR.tool.getMetadata(TOOL);
+   if(toolMeta?.liftSetterId!==now.setterId||toolMeta?.liftServeId!==now.serveId)return;
+   await backgroundSave({...now,liftTarget:{...r.p}});
+   await clearLiftPreview();
+   // Desliga somente a mira de Levantamento, devolvendo a ferramenta original.
+   try{const original=toolMeta.liftReturnTool,mode=toolMeta.liftReturnMode;
+     if(original&&mode)await OBR.tool.activateMode(original,mode);
+     else await OBR.tool.activateMode(TOOL,SERVE);
+   }catch(error){console.warn("Restaurar ferramenta",error);}
+ }
+ await OBR.tool.createMode({id:SET_AIM,icons:[{icon:ICON,label:"🏐 Mira do Levantamento (1 casa)"}],
+   cursors:[{cursor:"crosshair"}],
+   onDeactivate(){void clearLiftPreview();},
+   onToolMove(_ctx,e){void previewLift(e.pointerPosition);},
+   onToolClick(_ctx,e){void chooseLiftCell(e.pointerPosition).catch(console.warn);return false;},
+   onToolDragCancel(){void clearLiftPreview();}
+ });
  await OBR.tool.createMode({id:CALIBRATE,icons:[{icon:ICON,label:"Definir áreas / linhas (Mestre)",filter:{activeTools:[TOOL],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
    onActivate(){firstCorner=null;calibrationNonce=null;active=false;void removePreview();void clearCalibrationPreview();},
    onDeactivate(){firstCorner=null;void clearCalibrationPreview();},
@@ -1024,6 +1367,7 @@ async function startBackground(){
 // ======================== INTERFACE DA FICHA =======================
 async function startPanel(){
  let role=await OBR.player.getRole(),items=[],selectedId=null,selected=null,view="choose",court=null,grid="",message="",messageType="ok",rally=null,score=cleanScore(),serveLock=null;
+ let selectedCenter=null;
  let latestPreparedRollId=null;
  let restoreToolId=null,restoreModeId=null;
  let selectSerial=0,busy=false,editingProfile=false,manualTypeChoice=false;
@@ -1080,7 +1424,7 @@ async function startPanel(){
  }
  
  const status=(m,type="ok")=>{message=m;messageType=type;render();};
- function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.27</small></div>
+ function header(){return `<header><div class="top"><div><strong>🏐 HAIKYUU!!</strong><small>ROAD TO THE TOP • v0.29</small></div>
  <button data-act="close" aria-label="Fechar ficha">✕</button></div></header>`;}
  function choose(){
  if(selected?.metadata?.[SHEET]?.kind==="mestre"&&role!=="GM")
@@ -1150,7 +1494,7 @@ async function startPanel(){
    const tab=(name,label)=>`<button type="button" role="tab" aria-selected="${panelTab===name}" data-panel-tab="${name}" ${busy?"disabled":""}>${label}</button>`;
    // Todos os jogadores e NPCs podem ABRIR e acompanhar a aba Levantamento.
    // A permissao de assumir a corrida e validada separadamente pela posicao.
-   return `<nav class="game-tabs three" role="tablist" aria-label="Abas do jogador">${tab("status","📋 Status")}${tab("rally",waiting?"🏐 Saque/Recepção • !":"🏐 Saque/Recepção")}${tab("setter","🏐 Levantamento")}</nav>`;
+   return `<nav class="game-tabs three" role="tablist" aria-label="Abas do jogador">${tab("status","📋 Status")}${tab("rally",waiting?"🏐 Saque/Recepção • !":"🏐 Saque/Recepção")}${tab("setter","🏐 Levantamento/Bloqueio")}</nav>`;
  }
  function characterSheet(kind){const s=currentSheet(),npc=kind==="npc",editable=role==="GM"||(!npc&&s.kind!=="npc");
    if(!npc&&!s.created)return `<section class="card setup"><p class="kicker">Primeiro acesso • Ficha Jogador</p>
@@ -1162,8 +1506,8 @@ async function startPanel(){
      <p class="tip">Os dados e os pontos ficam salvos neste token antes da confirmação. Você só conclui quando distribuir os 3 pontos.</p></section>`;
    // A aba de Saque/Recepção é permanente, independente da compactação dos atributos.
    // A criação de personagem permanece na tela inicial até ser concluída.
-   if(panelTab==="setter")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Levantamento">
-     ${setterCard()}${timerCard()}</div>`;
+   if(panelTab==="setter")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Levantamento e Bloqueio">
+     ${setterCard()}${blockCard()}${timerCard()}</div>`;
    if(panelTab==="rally")return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Saque e Recepção">
      ${serveCard()}${receiveCard()}</div>`;
    if(!npc)return `${gameplayTabs()}<div class="game-tab-panel" role="tabpanel" aria-label="Status">
@@ -1184,27 +1528,30 @@ async function startPanel(){
   function ballState(){return (isBall(selected)?selected?.metadata?.[BALL_STATE]:null)||rally;}
   function timerCard(){
     const s=ballState(),t=s?.timer;
-    if(!s?.reception||s.ended)return "";
+    if(!s?.reception||s.ended&&!s.lifting)return "";
     const q=s.quality||"—",label=q==="Ace"?"Ace":`Passe ${q}`;
     const ms=timerRemaining(t);
-    const canPlay=role==="GM"&&!s.ended&&!s.receptionPending&&s.phase==="aguardando_mestre"&&s.setterId&&s.reachPassed&&s.setterRunDone&&
+    const canPlay=role==="GM"&&!s.ended&&!s.receptionPending&&["aguardando_mestre","escolhendo_levantamento"].includes(s.phase)&&s.setterId&&s.reachPassed&&s.setterRunDone&&
       (t?.status==="idle"||t?.status==="paused"||t?.status==="error");
     const canPause=role==="GM"&&t?.status==="running";
-    const statusLabel={idle:"Aguardando Play",paused:"Pausado",running:"Em andamento",resolving:"Levantamento no Dice+",done:"Levantamento realizado",error:"Falha na rolagem",disabled:"Sem timer"}[t?.status]||"Aguardando";
+    const statusLabel={idle:"Aguardando Play",paused:"Pausado",running:"Em andamento",awaiting_choice:"Tempo esgotado — aguardando escolhas",resolving:"Levantamento no Dice+",done:"Levantamento realizado",error:"Falha na rolagem",disabled:"Sem timer"}[t?.status]||"Aguardando";
     return `<section class="card reception-card"><p class="kicker">Bola · Levantamento</p>
       <h2>🏐 ${escapeHTML(label)} · ${s.reception?.total??"—"} vs ${s.total??"—"}</h2>
       <div class="stat"><span>Margem do Passe</span><b>${s.reception?.difference>0?"+":""}${s.reception?.difference??"—"}</b></div>
       <div class="stat"><span>Levantador</span><b>${escapeHTML(s.setterName||"Não escolhido")}</b></div>
       <div class="stat"><span>Condição</span><b>${q==="C"?"−1 no Levantamento":q==="D"?"Desvantagem":"Normal"}</b></div>
       <div class="stat"><span>Corrida do levantador</span><b>${Number(s.setterRunMeters||0).toFixed(2).replace(".",",")} m · −${s.setterRunPenalty||0}</b></div>
-      <p class="small">${QUALITY_RULES[q]?.reach&&!s.reachPassed?`É necessário obter ${QUALITY_RULES[q].reach} ou mais no 1d20 e chegar à bola antes do Play.`:!s.setterRunDone?"Aguardando o deslocamento do levantador.":"Corrida concluída. Timer liberado para o mestre."}</p>
+      ${s.liftType?`<div class="stat"><span>Tipo escolhido</span><b>${escapeHTML(SET_TYPES[s.liftType]?.name||"—")}</b></div>`:""}
+      ${s.liftTarget?`<div class="stat"><span>Mira</span><b>Casa selecionada ✅</b></div>`:""}
+      ${s.lifting?`<div class="stat"><span>Qualidade do levantamento</span><b>${escapeHTML(s.lifting.quality)} · ${s.lifting.total} · Ataque ${s.lifting.attackBonus>=0?"+":""}${s.lifting.attackBonus}</b></div>`:""}
+      <p class="small">${QUALITY_RULES[q]?.reach&&!s.reachPassed?`É necessário obter ${QUALITY_RULES[q].reach} ou mais no 1d20 e chegar à bola.`:!s.setterRunDone?"Aguardando o deslocamento do levantador.":"Corrida concluída. O Levantador pode iniciar a jogada."}</p>
       <div style="font-variant-numeric:tabular-nums;font-size:32px;font-weight:900;text-align:center" data-ball-clock>${fmtTimer(ms)}</div>
       <p class="small" style="text-align:center">${statusLabel}. ${t?.status==="done"?`Resultado do Levantamento: ${s.lifting?.total??"—"}`:""}</p>
       ${role==="GM"&&view==="mestre"?`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
         <button data-act="timer-play" ${canPlay?"":"disabled"}>▶ Play</button>
         <button data-act="timer-pause" ${canPause?"":"disabled"}>⏸ Pausar</button>
         <button data-act="timer-reset" ${["running","paused","idle","error"].includes(t?.status)?"":"disabled"}>↺ Reset</button>
-      </div><p class="small">Só o mestre controla o timer. Ao zerar, o Dice+ faz o Levantamento automaticamente.</p>`:""}
+      </div><p class="small">O levantador prepara a jogada; somente o mestre inicia, pausa ou reinicia o timer. Ao zerar, o Dice+ resolve quando tipo, atacante e casa estiverem definidos.</p>`:""}
     </section>`;
   }
   // Todos acompanham a aba, mas apenas o Levantador assume a corrida.
@@ -1239,7 +1586,68 @@ async function startPanel(){
       ${current.phase==="corrida_erro"&&assigned?'<p class="notice warn">⚠️ O Owlbear não confirmou o movimento. Tente novamente sem repetir a rolagem.</p>':""}
       ${current.ended&&!failure?'<p class="small">O rally já terminou.</p>':""}
       ${finished?'<p class="small">O levantamento já foi resolvido.</p>':""}
+      ${assigned&&current.setterRunDone&&!current.ended&&["aguardando_mestre","escolhendo_levantamento"].includes(current.phase)?`
+        <section class="lift-choices"><h2>🎯 Levantamento</h2>
+        ${current.timer?.status==="idle"?
+          `<button class="wide primary" data-act="start-lift" ${busy?"disabled":""}>🎯 Preparar Levantamento · Mestre inicia ${rule.seconds}s</button>`:
+          `<p class="notice">⏱ Faça suas escolhas durante o timer. O mestre controla a contagem.</p>`}
+        <p class="small"><b>1. Escolha o tipo:</b></p>
+        <div class="lift-type-list">${Object.entries(SET_TYPES).map(([id,t])=>`<button data-lift-type="${id}" class="${current.liftType===id?"primary":""}" ${busy?"disabled":""}>${t.name}<small> Teste ${t.testMod<0?"−1":"normal"} · Ataque ${t.attackMod?`+${t.attackMod}`:"+0"}</small></button>`).join("")}</div>
+        <label class="field">2. Escolha o atacante
+          <select data-lift-attacker><option value="">Selecione o jogador que receberá</option>
+          ${items.filter(i=>isCharacter(i)&&i.id!==current.setterId&&teamOfPosition(i.position,court)===current.recipientTeam).map(i=>`<option value="${escapeHTML(i.id)}" ${current.liftAttackerId===i.id?"selected":""}>${escapeHTML(sheetOf(i).name)}</option>`).join("")}
+          </select></label>
+        <p class="small"><b>3. Escolha uma casa no mapa</b> (mira de 1 quadrado, dentro da sua quadra).</p>
+        ${current.liftTarget?'<p class="notice">🎯 Casa marcada! Você pode mudar a mira enquanto o teste não foi realizado.</p>':""}
+        <button class="wide" data-act="aim-lift" ${busy?"disabled":""}>🎯 ${current.liftTarget?"Alterar destino":"Abrir mira de 1 casa"}</button>
+        <p class="small">Se o tempo acabar antes da escolha, o relógio fica em 0:00 e espera a seleção. Não há ponto automático por demora nesta versão.</p>
+        </section>`:""}
+      ${current.lifting?`<p class="notice">🏐 ${escapeHTML(current.lifting.typeName)}: <b>${escapeHTML(current.lifting.quality)}</b> (${current.lifting.total}) · ${escapeHTML(current.lifting.attackerName)} recebe <b>${current.lifting.attackBonus>=0?"+":""}${current.lifting.attackBonus} no Ataque</b>.</p>`:""}
+      ${current.phase==="levantado"&&current.liftAttackerId===selectedId?`<section class="lift-choices"><h2>⚡ Ataque</h2>
+        <p class="small">A bola chegou ao atacante. Bônus do Levantamento: ${current.lifting?.attackBonus>=0?"+":""}${current.lifting?.attackBonus??0}.</p>
+        <label class="field">Escolha a direção
+          <select data-attack-direction ${current.attackRoll?"disabled":""}><option value="">Selecione uma direção</option>
+          ${["Meio","Diagonal","Paralela"].map(d=>`<option value="${d}" ${current.attackDirection===d?"selected":""}>${d}</option>`).join("")}
+          </select></label>
+        <button class="wide blue" data-act="roll-attack" ${current.attackRoll||!current.attackDirection?"disabled":""}>🎲 Rolar Ataque no Dice+</button>
+        ${current.attackRoll?`<p class="notice">Ataque de ${escapeHTML(current.attackRoll.name)}: ${current.attackRoll.total}. ${current.blockComparison?escapeHTML(current.blockComparison.outcome):"Aguardando Bloqueio."}</p>`:""}
+        </section>`:""}
       ${!assigned&&current.setterId?'<p class="small">Outro levantador já assumiu esta jogada.</p>':""}
+    </section>`;
+  }
+
+  function blockCard(){
+    const current=rally;
+    if(!isCharacter(selected))return "";
+    if(!current?.reception||!QUALITY_RULES[current.quality]||current.ended)return `<section class="card"><h2>🛡 Bloqueio</h2><p class="small">Aguarde uma recepção válida para preparar seu bloqueio.</p></section>`;
+    const team=blockingTeamOf(current),point=selectedCenter||selected.position;
+    const mine=teamOfPosition(point,court)===team;
+    const front=mine&&isFrontCourt(point,court,team);
+    const plan=current.blockPlans?.[selectedId],moved=current.blockMoved?.[selectedId];
+    const count=Object.keys(current.blockPlans||{}).length;
+    const canAim=front&&current.blockTimer?.status==="running" &&
+      (current.quality==="A"||current.quality==="B"?!current.liftTarget:!!current.liftTarget);
+    const movement=canAim?"Você pode definir uma casa junto à rede.":
+      !front?"Somente jogadores da equipe que está bloqueando e posicionados na frente da quadra podem escolher a movimentação.":
+      ["C","D"].includes(current.quality)&&!current.liftTarget?"Passe C/D: espere conhecer o destino do levantamento.":
+      current.liftTarget&&["A","B"].includes(current.quality)?"Passe A/B: decisão de movimento encerrada após revelar o destino.":
+      "Aguarde o mestre iniciar o relógio de movimentação.";
+    const dirClock=current.blockDirectionTimer;
+    return `<section class="card reception-card"><p class="kicker">Gameplay • Defesa de rede</p><h2>🛡 Bloqueio</h2>
+      <p class="small">20 s para deslocar (independente do Levantamento). Passe ${escapeHTML(current.quality)}: ${["A","B"].includes(current.quality)?"decida antes de conhecer o destino":"decida depois do destino"}.</p>
+      <div class="stat"><span>Bloqueadores preparados</span><b>${count}/3</b></div>
+      <div class="stat"><span>Timer de deslocamento</span><b>${fmtTimer(timerRemaining(current.blockTimer))}</b></div>
+      ${plan?`<p class="notice">🎯 ${escapeHTML(plan.name)}: destino escolhido ${moved?moved.arrived?"· chegou à posição (−"+moved.runPenalty+")":"· movimento pendente":"· aguardando o timer"}.</p>`:""}
+      <p class="small">${movement}</p>
+      ${canAim?`<button class="wide blue" data-act="aim-block" ${busy?"disabled":""}>🛡 ${plan?"Alterar destino do Bloqueio":"Escolher destino no mapa (1 casa)"}</button>`:""}
+      ${plan?`<label class="field">Direção que você protegerá após a bola chegar ao atacante
+        <select data-block-direction ${current.phase!=="levantado"||dirClock?.status!=="running"?"disabled":""}>
+        <option value="">Selecione a direção</option>
+        ${["Meio","Diagonal","Paralela"].map(d=>`<option value="${d}" ${plan.direction===d?"selected":""}>${d}</option>`).join("")}
+        </select></label>`:""}
+      <p class="small">Até 6 m sem penalidade; depois −1 a cada 1,5 m. Central próximo da bola: +2. Bloqueio Duplo: +1 para cada; Triplo: +2 para cada, sem vantagem.</p>
+      ${dirClock&&current.phase==="levantado"?`<p class="small">Direção do bloqueio: <b>${fmtTimer(timerRemaining(dirClock))}</b> (${escapeHTML(dirClock.status||"idle")}). O mestre comanda o relógio de 10 s.</p>`:""}
+      ${Number.isFinite(current.blockBest)?`<p class="notice">🛡 Maior Bloqueio: ${current.blockBest}. ${current.blockComparison?escapeHTML(current.blockComparison.outcome):"Aguardando resultado do Ataque para comparar."}</p>`:""}
     </section>`;
   }
   async function commitRally(next,addPoint=false){
@@ -1359,6 +1767,152 @@ async function startPanel(){
     await completeSetterMovement();
     status(`✅ Deslocamento concluído! Aguardando Play do mestre.`);
   }
+  async function armLiftAim(current){
+    const tool=await OBR.tool.getActiveTool(),mode=await OBR.tool.getActiveToolMode();
+    const original=mode===SET_AIM?null:{liftReturnTool:tool,liftReturnMode:mode};
+    await OBR.tool.setMetadata(TOOL,{liftSetterId:current.setterId,liftServeId:current.serveId,...original});
+    try{await OBR.tool.activateMode(tool,SET_AIM);}
+    catch(err){console.warn("Mira automática indisponível, usando ferramenta Haikyuu",err);
+      await OBR.tool.activateMode(TOOL,SET_AIM);}
+  }
+  async function beginLift(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||current.ended||current.setterId!==selectedId||!current.reachPassed||!current.setterRunDone||!["aguardando_mestre","escolhendo_levantamento"].includes(current.phase))
+      throw Error("Primeiro conclua a corrida do Levantador.");
+    // O botão do jogador prepara a mira e as escolhas; quem dá Play é o Mestre.
+    const next={...current,liftStarted:true,phase:"escolhendo_levantamento"};
+    await commitRally(next);
+    try{await armLiftAim(next);}catch(err){console.warn("Mira indisponível; use Abrir mira",err);}
+    status(`🎯 Levantamento preparado. Escolha o tipo, o atacante e marque a casa. O mestre controla o timer de ${QUALITY_RULES[current.quality].seconds}s.`);
+  }
+  async function chooseLiftType(type){
+    if(!SET_TYPES[type])throw Error("Tipo de levantamento inválido.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||current.setterId!==selectedId||current.ended||!["idle","running","paused","awaiting_choice","error"].includes(current.timer?.status))
+      throw Error("Não há Levantamento disponível para este personagem.");
+    await commitRally({...current,liftType:type});
+    status(`🏐 ${SET_TYPES[type].name} escolhido. Selecione o atacante e a casa de destino.`);
+  }
+  async function chooseLiftAttacker(attackerId){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||current.setterId!==selectedId||current.ended||!["idle","running","paused","awaiting_choice","error"].includes(current.timer?.status))
+      throw Error("Levantamento indisponível.");
+    if(attackerId){
+      const [target]=await OBR.scene.items.getItems([attackerId]);
+      if(!isCharacter(target)||attackerId===current.setterId)throw Error("Atacante inválido.");
+      const bounds=await OBR.scene.items.getItemBounds([attackerId]);
+      if(teamOfPosition(bounds?.center||target.position,court)!==current.recipientTeam)throw Error("O atacante não pertence a essa equipe.");
+    }
+    await commitRally({...current,liftAttackerId:attackerId||null});
+  }
+
+  async function aimBlock(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current||current.ended||!isCharacter(selected)||current.blockTimer?.status!=="running")throw Error("O mestre deve iniciar o timer de Bloqueio antes da mira.");
+    const bounds=await OBR.scene.items.getItemBounds([selectedId]),center=bounds?.center||selected.position;
+    if(teamOfPosition(center,court)!==blockingTeamOf(current)||!isFrontCourt(center,court,blockingTeamOf(current)))
+      throw Error("Apenas jogadores na frente do time bloqueador podem escolher um destino.");
+    if(["A","B"].includes(current.quality)&&current.liftTarget)throw Error("Passe A/B: escolha antes de conhecer o destino.");
+    if(["C","D"].includes(current.quality)&&!current.liftTarget)throw Error("Passe C/D: aguarde a mira do levantamento.");
+    const tool=await OBR.tool.getActiveTool(),mode=await OBR.tool.getActiveToolMode();
+    await OBR.tool.setMetadata(TOOL,{blockerId:selectedId,blockServeId:current.serveId,blockReturnTool:tool,blockReturnMode:mode});
+    try{await OBR.tool.activateMode(tool,BLOCK_AIM);}
+    catch(err){await OBR.tool.activateMode(TOOL,BLOCK_AIM);}
+    status("🛡 Mira do Bloqueio ativa: marque uma casa da frente do seu time. O token só se move quando o relógio de 20s zerar.");
+  }
+  async function chooseBlockDirection(direction){
+    if(!["Meio","Diagonal","Paralela"].includes(direction))throw Error("Direção inválida.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current?.blockPlans?.[selectedId]||current.phase!=="levantado"||current.blockDirectionTimer?.status!=="running")throw Error("A direção deve ser escolhida durante os 10 segundos após a bola chegar ao atacante.");
+    await commitRally({...current,blockPlans:{...current.blockPlans,[selectedId]:{...current.blockPlans[selectedId],direction}},
+      blockMoved:current.blockMoved?.[selectedId]?{...current.blockMoved,[selectedId]:{...current.blockMoved[selectedId],direction}}:current.blockMoved});
+  }
+  async function controlBlockClock(kind,action){
+    if(role!=="GM")throw Error("Somente o mestre controla os timers.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(!current?.reception||current.ended)throw Error("Aguarde a recepção do saque.");
+    const direction=kind==="direction",field=direction?"blockDirectionTimer":"blockTimer";
+    if(!direction&&!QUALITY_RULES[current.quality])throw Error("Qualidade do Passe inválida.");
+    if(direction&&current.phase!=="levantado"&&current.blockDirectionTimer?.status!=="running")
+      throw Error("A direção só pode ser escolhida quando a bola chegar ao atacante.");
+    if(!direction&&["C","D"].includes(current.quality)&&!current.liftTarget)
+      throw Error("Passe C/D: o destino da bola precisa ser conhecido antes da movimentação dos bloqueadores.");
+    const old=current[field]||newBlockClock(direction?BLOCK_DIRECTION_SECONDS:BLOCK_MOVE_SECONDS),now=Date.now();
+    let next;
+    if(action==="play"){
+      if(!["idle","paused","error"].includes(old.status))throw Error("Relógio já foi iniciado ou está resolvido.");
+      const remaining=old.status==="error"?old.durationMs:timerRemaining(old,now);
+      next={...old,status:"running",remainingMs:remaining,endsAt:now+remaining};
+    }else if(action==="pause"){
+      if(old.status!=="running")throw Error("Relógio não está rodando.");
+      next={...old,status:"paused",remainingMs:timerRemaining(old,now),endsAt:null};
+    }else if(action==="reset"){
+      if(["moving","done"].includes(old.status))throw Error("Relógio já foi concluído; reinicie o Rally para começar outra jogada.");
+      next=newBlockClock(direction?BLOCK_DIRECTION_SECONDS:BLOCK_MOVE_SECONDS);
+    }else throw Error("Comando inválido.");
+    await commitRally({...current,[field]:next});
+    status(`${direction?"Direção":"Movimentação"} do Bloqueio: ${action==="play"?"▶ iniciado":action==="pause"?"⏸ pausado":"↺ reiniciado"}.`);
+  }
+  function gmBlockClocks(){
+    const state=rally;
+    if(!state?.reception||state.ended)return "";
+    const move=state.blockTimer||newBlockClock(),dir=state.blockDirectionTimer||newBlockClock(BLOCK_DIRECTION_SECONDS);
+    const row=(field,t,label,canPlay)=>`<div class="gm-clock"><div class="stat"><span>${label}</span><b data-${field}-clock>${fmtTimer(timerRemaining(t))}</b></div>
+     <p class="small">${escapeHTML(t.status||"idle")}</p>
+     <div class="clock-actions"><button data-act="${field}-play" ${canPlay&&["idle","paused","error"].includes(t.status)?"":"disabled"}>▶ Play</button>
+     <button data-act="${field}-pause" ${t.status==="running"?"":"disabled"}>⏸ Pausar</button>
+     <button data-act="${field}-reset" ${["idle","paused","running","error"].includes(t.status)?"":"disabled"}>↺ Reset</button></div></div>`;
+    return `<section class="card"><p class="kicker">Mestre • Dois relógios independentes</p><h2>🛡 Timer do Bloqueio</h2>
+      <p class="small">Passe ${escapeHTML(state.quality)}: decisão em 20s ${["A","B"].includes(state.quality)?"ANTES do destino do levantamento":"DEPOIS de conhecer o destino"}. Cada jogador marca sua casa na aba Levantamento/Bloqueio.</p>
+      ${row("block",move,"Movimentação do Bloqueio · 20s",["A","B"].includes(state.quality)?(!state.liftTarget||move.status==="paused"):!!state.liftTarget)}
+      ${row("direction",dir,"Direção (Meio/Diagonal/Paralela) · 10s",state.phase==="levantado")}
+      <p class="small">Ao terminar a movimentação, os bloqueadores andam para as casas escolhidas. Depois do timer de direção, o Dice+ realiza os testes individuais; no duplo/triplo vale somente o maior.</p>
+    </section>`;
+  }
+
+  async function chooseAttackDirection(direction){
+    if(!["Meio","Diagonal","Paralela"].includes(direction))throw Error("Direção de Ataque inválida.");
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(current?.ended||current?.phase!=="levantado"||current.liftAttackerId!==selectedId||current.attackRoll)
+      throw Error("A escolha da direção só está disponível para o atacante após o levantamento.");
+    await commitRally({...current,attackDirection:direction});
+    status(`🏐 Direção do Ataque escolhida: ${direction}.`);
+  }
+  async function rollAttack(){
+    const current=(await OBR.scene.getMetadata())[RALLY];
+    if(current?.ended||current?.phase!=="levantado"||current.liftAttackerId!==selectedId||!current.lifting)
+      throw Error("O Ataque só fica disponível após a bola chegar ao atacante escolhido.");
+    if(current.attackRoll)throw Error("O Ataque deste rally já foi realizado.");
+    if(!current.attackDirection)throw Error("Escolha Meio, Diagonal ou Paralela antes de rolar Ataque.");
+    const base=currentSheet().attributes.Ataque,buff=Number(current.lifting.attackBonus)||0;
+    const notation=`1d20${base<0?"-":"+"}${Math.abs(base)}${buff<0?buff:buff>0?`+${buff}`:""}`;
+    const attack=await requestDice(notation,`Ataque de ${currentSheet().name}`);
+    const latest=(await OBR.scene.getMetadata())[RALLY];
+    if(latest?.serveId!==current.serveId||latest?.timestamp!==current.timestamp||latest?.ended||latest?.attackRoll)
+      throw Error("A jogada mudou durante o Ataque.");
+    // Recalcula o bônus por acerto da direção em bloqueio INDIVIDUAL.
+    // No duplo/triplo a vantagem é apenas da formação, sem acerto de direção.
+    const participants=latest.blockResults||[],count=participants.length;
+    const adjusted=participants.map(r=>({...r,total:r.total+(count===1&&r.direction===current.attackDirection?1:0)-Number(r.directionBonus||0),
+      directionBonus:count===1&&r.direction===current.attackDirection?1:0}));
+    const highest=adjusted.length?Math.max(...adjusted.map(r=>r.total)):null;
+    const diff=Number.isFinite(highest)?highest-attack.total:null;
+    const comparison=diff===null?null:{difference:diff,outcome:blockOutcome(diff)};
+    let next={...latest,attackRoll:{id:selectedId,name:currentSheet().name,total:attack.total,notation,direction:current.attackDirection,
+      attribute:base,setBonus:buff,at:Date.now()},blockResults:adjusted,blockBest:highest,blockComparison:comparison};
+    if(comparison?.outcome==="Monster Block"){
+      const scene=await OBR.scene.getMetadata(),sc=cleanScore(scene[SCORE]);
+      sc[blockingTeamOf(current)]++;
+      next={...next,ended:true,phase:"monster_block"};
+      await commitRally(next);
+      await OBR.scene.setMetadata({[SCORE]:sc});
+      status(`🛡 MONSTER BLOCK! ${highest} contra Ataque ${attack.total}. Ponto dos bloqueadores.`);
+    }else{
+      await commitRally(next);
+      status(comparison?`🛡 ${comparison.outcome}: Bloqueio ${highest} × Ataque ${attack.total}.`:
+        `🏐 Ataque de ${currentSheet().name}: ${attack.total}. Aguardando o resultado do Bloqueio.`);
+    }
+  }
   async function controlTimer(action){
     if(role!=="GM")throw Error("Apenas o mestre controla o timer.");
     const current=(await OBR.scene.getMetadata())[RALLY];
@@ -1366,7 +1920,7 @@ async function startPanel(){
     const now=Date.now(),old=current.timer||newTimer(current.quality);
     let next;
     if(action==="play"){
-      if(!current.setterId||!current.reachPassed||!current.setterRunDone||current.phase!=="aguardando_mestre")
+      if(!current.setterId||!current.reachPassed||!current.setterRunDone||!["aguardando_mestre","escolhendo_levantamento"].includes(current.phase))
         throw Error("O Levantador precisa alcançar a bola e concluir o deslocamento antes do Play.");
       if(!["idle","paused","error"].includes(old.status))throw Error("O timer não está disponível para Play.");
       const remaining=old.status==="error"?old.durationMs:timerRemaining(old,now);
@@ -1378,12 +1932,15 @@ async function startPanel(){
       if(["resolving","done"].includes(old.status))throw Error("O Levantamento já está resolvido.");
       next=newTimer(current.quality);
     }else throw Error("Comando de timer inválido.");
-    await commitRally({...current,timer:next,phase:"aguardando_mestre"});
+    await commitRally({...current,timer:next,phase:action==="reset"?"aguardando_mestre":current.liftStarted?"escolhendo_levantamento":"aguardando_mestre",
+      liftStarted:action==="reset"?false:current.liftStarted});
     status(action==="play"?"▶ Timer iniciado pelo mestre.":action==="pause"?"⏸ Timer pausado pelo mestre.":"↺ Timer reiniciado.");
   }
   setInterval(()=>{
-    if(!rally?.timer)return;
-    for(const el of document.querySelectorAll("[data-ball-clock]"))el.textContent=fmtTimer(timerRemaining(rally.timer));
+    if(!rally)return;
+    if(rally.timer)for(const el of document.querySelectorAll("[data-ball-clock]"))el.textContent=fmtTimer(timerRemaining(rally.timer));
+    for(const [key,t] of [["block",rally.blockTimer],["direction",rally.blockDirectionTimer]])
+      if(t)for(const el of document.querySelectorAll(`[data-${key}-clock]`))el.textContent=fmtTimer(timerRemaining(t));
   },200);
 
    function ballPanel(){
@@ -1413,6 +1970,7 @@ async function startPanel(){
  <div class="stat"><span>NPCs</span><b>${items.filter(i=>isCharacter(i)&&sheetOf(i).kind==="npc").length}</b></div>
  <p class="small">Grade: ${escapeHTML(grid||"não definida")}. Referência do RPG: 1 casa = 1,5 m.</p></section>
   ${timerCard()}
+  ${gmBlockClocks()}
   <section class="card"><h2>📊 Placar do Rally</h2><div class="scoreboard"><div>Time A<strong>${score.allies}</strong></div><div>Time B<strong>${score.enemies}</strong></div></div>
  <p class="small">${rally?.ended?(rally.phase==="alcance_falhou"?"Levantador não alcançou a bola: ponto do sacador.":rally.quality==="Ace"?"Ace — ponto direto do sacador.":"Último rally encerrado: bola fora."):rally?.reception?`Passe ${rally.quality} registrado na bola. Próxima etapa: Levantamento.`:rally?.awaitingReception?"Rally aberto: aguardando recepção.":"Nenhuma recepção pendente."}</p>
  <button class="wide" data-act="reset-score">Zerar placar (Mestre)</button></section>
@@ -1467,6 +2025,9 @@ async function startPanel(){
    if(!id||!(await OBR.scene.isReady())){selected=null;render();return;}
    const [i]=await OBR.scene.items.getItems([id]);if(serial!==selectSerial)return;
    selected=i||null;
+   const bounds=selected?await OBR.scene.items.getItemBounds([id]).catch(()=>null):null;
+   if(serial!==selectSerial)return;
+   selectedCenter=bounds?.center||selected?.position||null;
    // Evita reabrir a tela de seleção quando o tipo já está registrado.
    if(changed&&!manualTypeChoice)view=rememberedViewFor(selected,role);
    render();
@@ -1773,7 +2334,9 @@ async function startPanel(){
         receiverId,reception,quality,ended:ace,passLanding:destination,
         receiverReachedBall:false,passMoveStage:ace?"encerrado":"receptor",
         passLandingZone:destination?courtZone(destination,court):null,
-        phase:ace?"encerrado":"passe_em_voo",timer:newTimer(quality)};
+        phase:ace?"encerrado":"passe_em_voo",timer:newTimer(quality),
+        blockTimer:newBlockClock(),blockPlans:{},blockMoved:{},blockResults:[],
+        blockDirectionTimer:newBlockClock(BLOCK_DIRECTION_SECONDS)};
       await commitRally(next,ace);
       if(!ace){
         // Movimento do token após classificar A, B, C ou D.
@@ -1870,6 +2433,14 @@ async function startPanel(){
      finally{busy=false;render();}
      return;
    }
+   if(b.dataset.blockDirection){
+     try{await chooseBlockDirection(b.dataset.blockDirection);}catch(err){status(err.message,"error");}
+     return;
+   }
+   if(b.dataset.liftType){
+     try{await chooseLiftType(b.dataset.liftType);}catch(err){status(err.message,"error");}
+     return;
+   }
    if(b.dataset.courtTask){
      try{
        if(role!=="GM")throw Error("Somente o mestre marca áreas.");
@@ -1958,6 +2529,21 @@ async function startPanel(){
         case "receive":await receiveServe();break;
        case "retry-pass-move":await retryPassMovement();break;
         case "choose-setter":await chooseSetter();break;
+        case "start-lift":await beginLift();break;
+        case "aim-block":await aimBlock();break;
+        case "roll-attack":await rollAttack();break;
+        case "block-play":await controlBlockClock("move","play");break;
+        case "block-pause":await controlBlockClock("move","pause");break;
+        case "block-reset":await controlBlockClock("move","reset");break;
+        case "direction-play":await controlBlockClock("direction","play");break;
+        case "direction-pause":await controlBlockClock("direction","pause");break;
+        case "direction-reset":await controlBlockClock("direction","reset");break;
+        case "aim-lift":{
+          const current=(await OBR.scene.getMetadata())[RALLY];
+          if(!current||current.setterId!==selectedId||!["idle","running","awaiting_choice"].includes(current.timer?.status))throw Error("Inicie o timer primeiro.");
+          await armLiftAim(current);
+          status("🎯 Mira de 1 quadrado ativada. Clique no centro da casa desejada no mapa.");break;
+        }
         case "test-reach":await reachTest();break;
        case "retry-setter-run":await retrySetterMovement();break;
         case "timer-play":await controlTimer("play");break;
@@ -2011,6 +2597,18 @@ async function startPanel(){
  });
  app.addEventListener("change",async e=>{
    const input=e.target;
+   if(input instanceof HTMLSelectElement&&input.dataset.attackDirection!==undefined){
+     if(input.value)try{await chooseAttackDirection(input.value);}catch(err){status(err.message,"error");}
+     return;
+   }
+   if(input instanceof HTMLSelectElement&&input.dataset.blockDirection!==undefined){
+     if(input.value)try{await chooseBlockDirection(input.value);}catch(err){status(err.message,"error");}
+     return;
+   }
+   if(input instanceof HTMLSelectElement&&input.dataset.liftAttacker!==undefined){
+     try{await chooseLiftAttacker(input.value);}catch(err){status(err.message,"error");}
+     return;
+   }
    if(input instanceof HTMLInputElement||input instanceof HTMLSelectElement){
      if(input.dataset.profile||input.dataset.attr){handleProfile(input,true);await flush(selectedId);}
    }
@@ -2068,7 +2666,7 @@ async function startPanel(){
  }
  await boot();
 }
-if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.27</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
+if(!OBR.isAvailable&&!background){app.innerHTML='<main><div class="card"><h2>🏐 Haikyuu!! v0.29</h2><p>Site publicado! Abra a extensão em uma sala do Owlbear Rodeo para ver a ficha.</p></div></main>';}
 else OBR.onReady(()=>{(background?startBackground():startPanel()).catch(err=>{
  console.error("Haikyuu inicialização:",err);
  if(!background)app.innerHTML=`<main><div class="card"><h2>Erro ao iniciar</h2><p>${escapeHTML(err.message)}</p></div></main>`;
