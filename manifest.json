@@ -1,8 +1,8 @@
 {
   "name": "Haikyuu!! Road to the Top",
-  "version": "0.27.0",
+  "version": "0.29.0",
   "manifest_version": 1,
-  "description": "Aba Levantamento para todos os personagens; corrida exclusiva do Levantador. Mantem saques, passes e timer.",
+  "description": "Timers independentes do Levantamento e Bloqueio; mira dos bloqueadores, movimento após 20s e direção em 10s.",
   "author": "Haikyuu!! Road to the Top",
   "icon": "https://alanrankingpoke.github.io/Haikyuu-Road-to-the-top-/Icon.png",
   "action": {
